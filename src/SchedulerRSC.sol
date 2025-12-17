@@ -20,9 +20,9 @@ contract SchedulerRSC is AbstractReactive {
     address private constant SYSTEM_CONTRACT = 0x0000000000000000000000000000000000fffFfF;
 
     // Topic0 hashes for Cron events (keccak256 of event signatures)
-    uint256 private constant CRON100_TOPIC = 0xb49937fb8970e19fd46d48f7e3fb00d659deac0347f79cd7cb542f0fc1503c70;
-    uint256 private constant CRON1000_TOPIC = 0xe20b31294d84c3661ddc8f423abb9c70310d0cf172aa2714ead78029b325e3f4;
-    uint256 private constant CRON10000_TOPIC = 0xd214e1d84db704ed42d37f538ea9bf71e44ba28bc1cc088b2f5deca654677a56;
+    uint256 private constant CRON100_TOPIC = 0xb49937fb8970e19fd46d48f7e3fb00d659deac0347f79cd7cb542f0fc1503c70;   // ~12 minutes
+    uint256 private constant CRON1000_TOPIC = 0xe20b31294d84c3661ddc8f423abb9c70310d0cf172aa2714ead78029b325e3f4;  //  ~2 hours
+    uint256 private constant CRON10000_TOPIC = 0xd214e1d84db704ed42d37f538ea9bf71e44ba28bc1cc088b2f5deca654677a56; // ~28 hours
 
     // Gas limit for callback transaction on destination chain
     uint64 private constant CALLBACK_GAS_LIMIT = 1000000;
@@ -45,16 +45,20 @@ contract SchedulerRSC is AbstractReactive {
     // Increments on each Cron10000 event, resets after reaching WEEKLY_ITERATIONS
     uint256 public weeklyCounter;
 
+    // Flag to track if subscription has been initialized
+    bool public subscribed;
+
     // ========== EVENTS ==========
 
-    event IntervalUpdated(uint256 oldInterval, uint256 newInterval);
     event TargetVaultUpdated(address oldVault, address newVault);
+    event Subscribed(uint256 interval);
 
     // ========== ERRORS ==========
 
     error InvalidInterval(uint256 interval);
     error Unauthorized(address caller);
     error InvalidAddress(address addr);
+    error AlreadySubscribed();
 
     // ========== MODIFIERS ==========
 
@@ -70,19 +74,49 @@ contract SchedulerRSC is AbstractReactive {
      * @param _targetVault Address of the AutoYieldVault contract on Sepolia
      * @param _interval Cron interval (must be 100, 1000, 10000, or 60000)
      */
-    constructor(address _targetVault, uint256 _interval) {
-        if (_targetVault == address(0)) revert InvalidAddress(_targetVault);
-        if (_interval != 100 && _interval != 1000 && _interval != 10000 && _interval != 60000) {
+    constructor(address _targetVault, uint256 _interval) payable {
+
+        if (_targetVault == address(0))
+            revert InvalidAddress(_targetVault);
+
+        if (_interval != 100 && _interval != 1000 && _interval != 10000 && _interval != 60000)
             revert InvalidInterval(_interval);
-        }
 
         owner = msg.sender;
         targetVault = _targetVault;
         interval = _interval;
         weeklyCounter = 0;
+        subscribed = false;
+    }
 
-        // Subscribe to the appropriate Cron event based on interval
-        _subscribeToInterval(_interval);
+    /**
+     * @notice Subscribe to Cron events - MUST be called after deployment
+     * @dev Can only be called once by the owner. Requires contract to have REACT balance for subscription fees.
+     */
+    function subscribe() external onlyOwner rnOnly {
+        if (subscribed) revert AlreadySubscribed();
+
+        uint256 topic;
+
+        // For 60000 (weekly), subscribe to Cron10000
+        if (interval == 60000) {
+            topic = CRON10000_TOPIC;
+        } else {
+            topic = _getTopicForInterval(interval);
+        }
+
+        // Subscribe to system contract's Cron events
+        service.subscribe(
+            0, // chain_id: 0 = Reactive Network itself
+            SYSTEM_CONTRACT, // System contract emits Cron events
+            topic, // Topic0: specific Cron event
+            REACTIVE_IGNORE, // Ignore topic1
+            REACTIVE_IGNORE, // Ignore topic2
+            REACTIVE_IGNORE // Ignore topic3
+        );
+
+        subscribed = true;
+        emit Subscribed(interval);
     }
 
     // ========== REACTIVE LOGIC ==========
@@ -153,48 +187,6 @@ contract SchedulerRSC is AbstractReactive {
     // ========== SUBSCRIPTION MANAGEMENT ==========
 
     /**
-     * @notice Subscribes to the Cron event corresponding to the given interval
-     * @param _interval The interval to subscribe to (100, 1000, 10000, or 60000)
-     */
-    function _subscribeToInterval(uint256 _interval) private rnOnly {
-        uint256 topic;
-
-        // For 60000 (weekly), subscribe to Cron10000
-        if (_interval == 60000) {
-            topic = CRON10000_TOPIC;
-        } else {
-            topic = _getTopicForInterval(_interval);
-        }
-
-        // Subscribe to system contract's Cron events
-        service.subscribe(
-            0, // chain_id: 0 = Reactive Network itself
-            SYSTEM_CONTRACT, // System contract emits Cron events
-            topic, // Topic0: specific Cron event
-            REACTIVE_IGNORE, // Ignore topic1
-            REACTIVE_IGNORE, // Ignore topic2
-            REACTIVE_IGNORE // Ignore topic3
-        );
-    }
-
-    /**
-     * @notice Unsubscribes from the Cron event corresponding to the given interval
-     * @param _interval The interval to unsubscribe from
-     */
-    function _unsubscribeFromInterval(uint256 _interval) private rnOnly {
-        uint256 topic;
-
-        // For 60000 (weekly), unsubscribe from Cron10000
-        if (_interval == 60000) {
-            topic = CRON10000_TOPIC;
-        } else {
-            topic = _getTopicForInterval(_interval);
-        }
-
-        service.unsubscribe(0, SYSTEM_CONTRACT, topic, REACTIVE_IGNORE, REACTIVE_IGNORE, REACTIVE_IGNORE);
-    }
-
-    /**
      * @notice Maps interval values to their corresponding Cron topic hashes
      * @param _interval The interval value (100, 1000, or 10000)
      * @return The topic0 hash for the corresponding Cron event
@@ -207,35 +199,6 @@ contract SchedulerRSC is AbstractReactive {
     }
 
     // ========== ADMINISTRATIVE FUNCTIONS ==========
-
-    /**
-     * @notice Allows owner to change the cron interval
-     * @dev Unsubscribes from old interval and subscribes to new one
-     *      Resets weekly counter when changing intervals
-     * @param _newInterval The new interval (must be 100, 1000, 10000, or 60000)
-     */
-    function setInterval(uint256 _newInterval) external onlyOwner rnOnly {
-        if (_newInterval != 100 && _newInterval != 1000 && _newInterval != 10000 && _newInterval != 60000) {
-            revert InvalidInterval(_newInterval);
-        }
-        if (_newInterval == interval) return; // No change needed
-
-        uint256 oldInterval = interval;
-
-        // Unsubscribe from current interval
-        _unsubscribeFromInterval(oldInterval);
-
-        // Update interval
-        interval = _newInterval;
-
-        // Reset weekly counter
-        weeklyCounter = 0;
-
-        // Subscribe to new interval
-        _subscribeToInterval(_newInterval);
-
-        emit IntervalUpdated(oldInterval, _newInterval);
-    }
 
     /**
      * @notice Allows owner to update the target vault address on Sepolia
