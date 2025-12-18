@@ -16,9 +16,6 @@ contract SchedulerRSC is AbstractReactive {
     // Sepolia testnet chain ID
     uint256 private constant SEPOLIA_CHAIN_ID = 11155111;
 
-    // System contract address for Reactive Network (emits Cron events)
-    address private constant SYSTEM_CONTRACT = 0x0000000000000000000000000000000000fffFfF;
-
     // Topic0 hashes for Cron events (keccak256 of event signatures)
     uint256 private constant CRON100_TOPIC = 0xb49937fb8970e19fd46d48f7e3fb00d659deac0347f79cd7cb542f0fc1503c70;   // ~12 minutes
     uint256 private constant CRON1000_TOPIC = 0xe20b31294d84c3661ddc8f423abb9c70310d0cf172aa2714ead78029b325e3f4;  //  ~2 hours
@@ -45,20 +42,15 @@ contract SchedulerRSC is AbstractReactive {
     // Increments on each Cron10000 event, resets after reaching WEEKLY_ITERATIONS
     uint256 public weeklyCounter;
 
-    // Flag to track if subscription has been initialized
-    bool public subscribed;
-
     // ========== EVENTS ==========
 
     event TargetVaultUpdated(address oldVault, address newVault);
-    event Subscribed(uint256 interval);
 
     // ========== ERRORS ==========
 
     error InvalidInterval(uint256 interval);
     error Unauthorized(address caller);
     error InvalidAddress(address addr);
-    error AlreadySubscribed();
 
     // ========== MODIFIERS ==========
 
@@ -70,12 +62,12 @@ contract SchedulerRSC is AbstractReactive {
     // ========== CONSTRUCTOR ==========
 
     /**
-     * @notice Initializes the SchedulerRSC contract
+     * @notice Initializes the SchedulerRSC contract and subscribes to Cron events
      * @param _targetVault Address of the AutoYieldVault contract on Sepolia
      * @param _interval Cron interval (must be 100, 1000, 10000, or 60000)
+     * @dev Subscription happens automatically in constructor using if (!vm) check
      */
     constructor(address _targetVault, uint256 _interval) payable {
-
         if (_targetVault == address(0))
             revert InvalidAddress(_targetVault);
 
@@ -86,37 +78,30 @@ contract SchedulerRSC is AbstractReactive {
         targetVault = _targetVault;
         interval = _interval;
         weeklyCounter = 0;
-        subscribed = false;
-    }
 
-    /**
-     * @notice Subscribe to Cron events - MUST be called after deployment
-     * @dev Can only be called once by the owner. Requires contract to have REACT balance for subscription fees.
-     */
-    function subscribe() external onlyOwner rnOnly {
-        if (subscribed) revert AlreadySubscribed();
+        // Subscribe to Cron events only when deployed to Reactive Network (not ReactVM)
+        // Following the official pattern from CronDemo
+        if (!vm) {
+            uint256 topic;
 
-        uint256 topic;
+            // For 60000 (weekly), subscribe to Cron10000
+            if (interval == 60000) {
+                topic = CRON10000_TOPIC;
+            } else {
+                topic = _getTopicForInterval(interval);
+            }
 
-        // For 60000 (weekly), subscribe to Cron10000
-        if (interval == 60000) {
-            topic = CRON10000_TOPIC;
-        } else {
-            topic = _getTopicForInterval(interval);
+            // Subscribe to system contract's Cron events
+            // Use block.chainid and address(service) following official CronDemo pattern
+            service.subscribe(
+                block.chainid,      // Current chain (Reactive Network)
+                address(service),   // System contract address
+                topic,              // Topic0: specific Cron event
+                REACTIVE_IGNORE,    // Ignore topic1
+                REACTIVE_IGNORE,    // Ignore topic2
+                REACTIVE_IGNORE     // Ignore topic3
+            );
         }
-
-        // Subscribe to system contract's Cron events
-        service.subscribe(
-            0, // chain_id: 0 = Reactive Network itself
-            SYSTEM_CONTRACT, // System contract emits Cron events
-            topic, // Topic0: specific Cron event
-            REACTIVE_IGNORE, // Ignore topic1
-            REACTIVE_IGNORE, // Ignore topic2
-            REACTIVE_IGNORE // Ignore topic3
-        );
-
-        subscribed = true;
-        emit Subscribed(interval);
     }
 
     // ========== REACTIVE LOGIC ==========
@@ -128,12 +113,12 @@ contract SchedulerRSC is AbstractReactive {
      */
     function react(LogRecord calldata log) external vmOnly {
         // Verify the event is from the system contract
-        if (log._contract != SYSTEM_CONTRACT) return;
+        if (log._contract != address(service)) return;
 
         // Handle based on current interval configuration
         if (interval == 60000) {
             // Weekly mode: count 6 occurrences of Cron10000
-            _handleWeeklyMode(log);
+            _handleWeeklyMode();
         } else {
             // Direct modes (100, 1000, 10000): trigger immediately
             _handleDirectMode(log);
@@ -143,12 +128,8 @@ contract SchedulerRSC is AbstractReactive {
     /**
      * @notice Handles weekly mode (60000 interval)
      * @dev Counts Cron10000 events and triggers callback every 6th occurrence
-     * @param log The log record from the Cron event
      */
-    function _handleWeeklyMode(LogRecord calldata log) private {
-        // Only process Cron10000 events in weekly mode
-        if (log.topic_0 != CRON10000_TOPIC) return;
-
+    function _handleWeeklyMode() private {
         // Increment counter
         weeklyCounter++;
 

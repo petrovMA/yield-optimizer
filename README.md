@@ -121,12 +121,13 @@ The heart of the automation system - a Reactive Smart Contract that triggers per
 
 **Key Functions:**
 ```solidity
-constructor(address _targetVault, uint256 _interval)
-react(LogRecord calldata log)                    // Entry point for Cron events
-setInterval(uint256 _newInterval)                // Change cron interval
-setTargetVault(address _newVault)                // Update vault address
-resetWeeklyCounter()                             // Manually reset counter
+constructor(address _targetVault, uint256 _interval) // Deploys and subscribes to cron
+react(LogRecord calldata log)                        // Entry point for Cron events
+setTargetVault(address _newVault)                    // Update vault address
+resetWeeklyCounter()                                 // Manually reset counter (weekly mode)
 ```
+
+**Note:** Interval cannot be changed after deployment (immutable).
 
 **Weekly Mode Logic:**
 ```
@@ -326,24 +327,26 @@ Ran 17 tests for test/SchedulerRSC.t.sol:SchedulerRSCTest
 
 ## 🌐 Deployment
 
-### Quick Start (5 minutes)
+### Quick Start
 
-See [QUICKSTART.md](QUICKSTART.md) for a rapid deployment guide.
-
-**TL;DR:**
 ```bash
-# 1. Setup
+# 1. Setup environment
 cp .env.example .env
-nano .env  # Add your PRIVATE_KEY, TARGET_VAULT, INTERVAL
+nano .env  # Add your PRIVATE_KEY_REACTIVE, TARGET_VAULT, INTERVAL
 
-# 2. Deploy to Reactive Lasna Testnet
+# 2. Load environment variables
 source .env
-forge script script/DeploySchedulerRSC.s.sol:DeploySchedulerRSC \
-  --rpc-url reactive_lasna \
-  --private-key $PRIVATE_KEY \
+
+# 3. Deploy SchedulerRSC to Reactive Lasna Testnet (subscription happens automatically)
+forge create src/SchedulerRSC.sol:SchedulerRSC \
   --broadcast \
-  -vvvv
+  --rpc-url reactive_lasna \
+  --private-key $PRIVATE_KEY_REACTIVE \
+  --value 0.1ether \
+  --constructor-args $TARGET_VAULT $INTERVAL
 ```
+
+**That's it!** The contract is deployed and automatically subscribed to cron events.
 
 ### Detailed Guide
 
@@ -351,7 +354,7 @@ For complete deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 **Includes:**
 - Network setup and configuration
-- Getting testnet tokens
+- Getting testnet tokens (REACT for Reactive Network, ETH for Sepolia)
 - Deploying to Reactive Lasna Testnet
 - Deploying mock contracts to Sepolia
 - Contract verification
@@ -361,35 +364,37 @@ For complete deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 ### Deploy Mock Contracts to Sepolia
 
 ```bash
-# Deploy MockToken
+# Deploy MockToken (USDT)
 forge create src/MockToken.sol:MockToken \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --private-key $PRIVATE_KEY \
+  --rpc-url sepolia \
+  --private-key $PRIVATE_KEY_SEPOLIA \
   --constructor-args "USDT Mock" "USDT"
 
 # Deploy AAVEPoolMock
 forge create src/AAVEPoolMock.sol:AAVEPoolMock \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --private-key $PRIVATE_KEY
+  --rpc-url sepolia \
+  --private-key $PRIVATE_KEY_SEPOLIA
 ```
 
-### Configuration
+### Post-Deployment Configuration
 
-After deployment, configure the scheduler:
+After deployment, you can update the scheduler settings:
 
 ```bash
-# Change interval (e.g., from 1000 to 10000)
-cast send <SCHEDULER_ADDRESS> \
-  "setInterval(uint256)" 10000 \
-  --rpc-url $REACTIVE_RPC_URL \
-  --private-key $PRIVATE_KEY
-
 # Update target vault
 cast send <SCHEDULER_ADDRESS> \
   "setTargetVault(address)" <NEW_VAULT_ADDRESS> \
-  --rpc-url $REACTIVE_RPC_URL \
-  --private-key $PRIVATE_KEY
+  --rpc-url reactive_lasna \
+  --private-key $PRIVATE_KEY_REACTIVE
+
+# Reset weekly counter (for weekly mode only)
+cast send <SCHEDULER_ADDRESS> \
+  "resetWeeklyCounter()" \
+  --rpc-url reactive_lasna \
+  --private-key $PRIVATE_KEY_REACTIVE
 ```
+
+**Note:** Interval cannot be changed after deployment. To use a different interval, deploy a new contract.
 
 ## 📊 Cron Intervals Reference
 
