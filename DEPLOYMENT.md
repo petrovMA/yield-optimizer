@@ -163,7 +163,7 @@ forge create src/SchedulerRSC.sol:SchedulerRSC \
   --broadcast \
   --rpc-url reactive_lasna \
   --private-key $PRIVATE_KEY_REACTIVE \
-  --value 0.1ether \
+  --value 0.05ether \
   --constructor-args $AUTO_YIELD_VAULT 1000
 ```
 

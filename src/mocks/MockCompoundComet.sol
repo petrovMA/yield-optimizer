@@ -53,8 +53,8 @@ contract MockCompoundComet {
 
     // rateInWad: Ставка в секунду!
     // Пример: 5% APY ~ 1585489599 per second (в формате 1e18)
-    function setSupplyRate(uint64 _rateWad) external {
-        currentSupplyRate = _rateWad;
-        emit RateChanged(_rateWad);
+    function setSupplyRate(uint256 _rateWad) external {
+        currentSupplyRate = uint64(_rateWad);
+        emit RateChanged(uint64(_rateWad));
     }
 }
