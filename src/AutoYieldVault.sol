@@ -115,7 +115,7 @@ contract AutoYieldVault is AbstractCallback, Ownable {
      * @dev Checks APY rates and executes rebalance if profitable
      * @param _rvmId The RVM ID (ReactVM address) - validated by AbstractCallback
      */
-    function checkAndRebalance(address _rvmId) external onlyCallback {
+    function checkAndRebalance(address _rvmId) external authorizedSenderOnly {
         _executeRebalanceLogic();
     }
 
@@ -244,5 +244,5 @@ contract AutoYieldVault is AbstractCallback, Ownable {
     /**
      * @notice Allow contract to receive ETH (needed for gas/deployment costs sometimes)
      */
-    receive() external payable {}
+    receive() external payable override {}
 }

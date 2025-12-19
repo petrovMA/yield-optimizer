@@ -62,12 +62,12 @@ contract MockAavePool {
     // --- Admin Функции для теста (Управление ставкой) ---
 
     // rateInRay: Например, 5% = 0.05 * 1e27 = 50000000000000000000000000
-    function setLiquidityRate(address asset, uint128 rateInRay) external {
-        reserves[asset].currentLiquidityRate = rateInRay;
+    function setLiquidityRate(address asset, uint256 rateInRay) external {
+        reserves[asset].currentLiquidityRate = uint128(rateInRay);
         // Для реализма ставим индекс 1
         if (reserves[asset].liquidityIndex == 0) {
-            reserves[asset].liquidityIndex = 1e27;
+            reserves[asset].liquidityIndex = uint128(1e27);
         }
-        emit RateChanged(asset, rateInRay);
+        emit RateChanged(asset, uint128(rateInRay));
     }
 }

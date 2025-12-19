@@ -78,7 +78,7 @@ cast send $AAVE_POOL \
 ### 3. Deploy MockAavePool (Spark) on Sepolia
 
 ```bash
-forge create src/AAVEPoolMock.sol:AAVEPoolMock \
+forge create src/mocks/MockAavePool.sol:MockAavePool \
   --broadcast \
   --rpc-url sepolia \
   --private-key $PRIVATE_KEY_SEPOLIA \
