@@ -405,7 +405,7 @@ forge create src/MockToken.sol:MockToken \
   --constructor-args "USDT Mock" "USDT"
 
 # Deploy AAVEPoolMock
-forge create src/AAVEPoolMock.sol:AAVEPoolMock \
+forge create src/MockAavePool.sol:AAVEPoolMock \
   --rpc-url sepolia \
   --private-key $PRIVATE_KEY_SEPOLIA
 ```
