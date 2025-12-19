@@ -122,6 +122,8 @@ forge create src/SchedulerRSC.sol:SchedulerRSC \
   --constructor-args 0x729042614618F24bE3ed3e0b824A0be0B4da1bcE 60000
 ```
 
+forge verify-contract $TARGET_VAULT src/AutoYieldVault.sol:AutoYieldVault --chain sepolia --etherscan-api-key $ETHERSCAN_API_KEY
+
 **Explanation:**
 - `--broadcast` - Actually sends the transaction to the blockchain
 - `--rpc-url reactive_lasna` - Uses the RPC endpoint from foundry.toml
@@ -172,9 +174,51 @@ You should see:
 - Owner address
 - Contract balance (1+ REACT)
 
-## 📦 Deploy Mock Contracts to Sepolia
+## 📦 Deploy AutoYieldVault to Sepolia
 
-If you haven't deployed the vault and mock pools yet, here's how:
+**IMPORTANT:** Deploy AutoYieldVault BEFORE deploying SchedulerRSC, as you need the vault address.
+
+### Step 1: Deploy AutoYieldVault
+
+```bash
+# Deploy AutoYieldVault (owner automatically set to deployer)
+forge create src/AutoYieldVault.sol:AutoYieldVault \
+  --broadcast \
+  --rpc-url sepolia \
+  --private-key $PRIVATE_KEY_SEPOLIA \
+  --value 0.01ether
+```
+
+**Note:** Constructor no longer requires owner parameter - it automatically uses msg.sender (deployer)
+
+### Step 2: Save Vault Address
+
+After deployment, save the vault address:
+
+```bash
+# Copy the "Deployed to:" address from output
+export TARGET_VAULT=0x...  # Replace with actual address
+
+# Update .env file
+echo "TARGET_VAULT=$TARGET_VAULT" >> .env
+```
+
+### Step 3: Verify Deployment
+
+```bash
+# Check owner
+cast call $TARGET_VAULT "owner()(address)" --rpc-url sepolia
+
+# Should return your address
+```
+
+### Step 4: Deploy SchedulerRSC
+
+Now deploy SchedulerRSC using the vault address (see section above).
+
+## 📦 Deploy Mock Contracts to Sepolia (Optional)
+
+For testing with mock lending pools:
 
 ### 1. Deploy MockToken (USDT)
 
@@ -213,6 +257,60 @@ cast send <AAVE_POOL_ADDRESS> \
 
 ## ✅ Verify Contracts
 
+### Verify AutoYieldVault on Sepolia Etherscan
+
+**Method 1: Verify during deployment (Foundry v1.5.0+)**
+
+```bash
+# Deploy and verify in one command (requires Foundry v1.5.0+)
+forge create src/AutoYieldVault.sol:AutoYieldVault \
+  --broadcast \
+  --rpc-url sepolia \
+  --private-key $PRIVATE_KEY_SEPOLIA \
+  --value 0.01ether \
+  --verify \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+```
+
+**Method 2: Verify after deployment (Recommended - Always works)**
+
+```bash
+# For AutoYieldVault (no constructor args)
+forge verify-contract \
+  0x8F58f929d2d12Bf88e795c8F523558d24B59D7A3 \
+  src/AutoYieldVault.sol:AutoYieldVault \
+  --chain sepolia \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+
+# Or use environment variable
+forge verify-contract \
+  $TARGET_VAULT \
+  src/AutoYieldVault.sol:AutoYieldVault \
+  --chain sepolia \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+```
+
+**Verify MockToken (with constructor args):**
+
+```bash
+forge verify-contract \
+  <CONTRACT_ADDRESS> \
+  src/MockToken.sol:MockToken \
+  --chain sepolia \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
+  --constructor-args $(cast abi-encode "constructor(string,string)" "USDT Mock" "USDT")
+```
+
+**Verify AAVEPoolMock (no constructor args):**
+
+```bash
+forge verify-contract \
+  <CONTRACT_ADDRESS> \
+  src/AAVEPoolMock.sol:AAVEPoolMock \
+  --chain sepolia \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+```
+
 ### Verify on Lasna Reactscan
 
 Unfortunately, Foundry's `--verify` flag doesn't work with Reactive Network yet. Manual verification:
@@ -222,17 +320,200 @@ Unfortunately, Foundry's `--verify` flag doesn't work with Reactive Network yet.
 3. Click "Verify & Publish"
 4. Upload the source code
 
-### Verify on Sepolia Etherscan
+### Complete Verification Guide
 
-If you used `--verify` during deployment, it should be automatic. Otherwise:
+**Prerequisites:**
+1. **Foundry v1.5.0 or higher** (for Etherscan API V2 support)
+2. **Etherscan API key** set in `.env` file
+3. **solc_version** configured in `foundry.toml`
+
+**Step-by-step verification process:**
+
+#### 1. Update Foundry (if needed)
 
 ```bash
+# Check current version
+forge --version
+
+# Update if version is below 1.5.0
+foundryup
+
+# Verify new version
+forge --version  # Should show 1.5.0 or higher
+```
+
+#### 2. Clean cache (if upgrading from old Foundry)
+
+```bash
+# Clean old cache to avoid compatibility issues
+forge clean
+
+# Rebuild project with new cache
+forge build
+```
+
+#### 3. Ensure foundry.toml has solc_version
+
+Your `foundry.toml` should include:
+
+```toml
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.28"  # Add this line
+```
+
+#### 4. Load environment variables
+
+```bash
+# Always load .env before verification commands
+source .env
+
+# Verify variables are loaded
+echo $ETHERSCAN_API_KEY  # Should output your API key
+echo $TARGET_VAULT       # Should output vault address
+```
+
+#### 5. Run verification
+
+```bash
+# Load environment
+source .env
+
+# Verify contract
 forge verify-contract \
-  <CONTRACT_ADDRESS> \
-  src/MockToken.sol:MockToken \
+  $TARGET_VAULT \
+  src/AutoYieldVault.sol:AutoYieldVault \
+  --chain sepolia \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+
+# Or with specific address
+forge verify-contract \
+  0x8F58f929d2d12Bf88e795c8F523558d24B59D7A3 \
+  src/AutoYieldVault.sol:AutoYieldVault \
+  --chain sepolia \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+```
+
+**Success looks like:**
+```
+Start verifying contract `0x8F58...` deployed on sepolia
+Submitting verification for [src/AutoYieldVault.sol:AutoYieldVault]
+Response: `OK`
+GUID: `...`
+URL: https://sepolia.etherscan.io/address/0x8f58...
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+```
+
+### Troubleshooting Verification
+
+**Error: "deprecated V1 endpoint" or "You are using a deprecated V1 endpoint"**
+
+This means Foundry is outdated. Solution:
+```bash
+# Update Foundry to v1.5.0+
+foundryup
+
+# Clean cache and rebuild
+forge clean
+forge build
+
+# Try verification again
+source .env
+forge verify-contract $TARGET_VAULT \
+  src/AutoYieldVault.sol:AutoYieldVault \
+  --chain sepolia \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+```
+
+**Error: "missing field `preprocessed`" or cache errors**
+
+This happens after upgrading Foundry. Solution:
+```bash
+# Clean corrupted cache
+forge clean
+
+# Rebuild with new cache
+forge build
+
+# Verify again
+source .env
+forge verify-contract $TARGET_VAULT \
+  src/AutoYieldVault.sol:AutoYieldVault \
+  --chain sepolia \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+```
+
+**Error: "compiler version must be provided"**
+
+Add `solc_version` to `foundry.toml`:
+```bash
+# Check which solidity version your contract uses
+grep "pragma solidity" src/AutoYieldVault.sol
+# Output: pragma solidity ^0.8.20;
+
+# Add to foundry.toml under [profile.default]
+echo 'solc_version = "0.8.28"' >> foundry.toml
+
+# Rebuild
+forge build
+
+# Verify
+source .env
+forge verify-contract $TARGET_VAULT \
+  src/AutoYieldVault.sol:AutoYieldVault \
+  --chain sepolia \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+```
+
+**Error: "Source code does not match"**
+
+Ensure exact compiler version match:
+```bash
+# Use --watch flag to see detailed status
+source .env
+forge verify-contract \
+  $TARGET_VAULT \
+  src/AutoYieldVault.sol:AutoYieldVault \
   --chain sepolia \
   --etherscan-api-key $ETHERSCAN_API_KEY \
-  --constructor-args $(cast abi-encode "constructor(string,string)" "USDT Mock" "USDT")
+  --watch
+```
+
+**Error: "Already verified"**
+
+The contract is already verified! Check on Etherscan:
+```bash
+# Open in browser
+echo "https://sepolia.etherscan.io/address/$TARGET_VAULT"
+```
+
+**Error: "Invalid API key"**
+
+Check your `.env` file:
+```bash
+# Verify API key is set correctly
+cat .env | grep ETHERSCAN_API_KEY
+
+# Make sure you loaded the environment
+source .env
+echo $ETHERSCAN_API_KEY  # Should show your key
+
+# Get API key from: https://etherscan.io/myapikey
+```
+
+**Verification timeout or hanging**
+
+The verification might succeed even if it times out. Check Etherscan:
+```bash
+# Visit the contract page
+echo "https://sepolia.etherscan.io/address/$TARGET_VAULT#code"
+
+# If "Contract Source Code Verified" appears, it worked!
 ```
 
 ## ⚙️ Post-Deployment Configuration
@@ -361,53 +642,169 @@ cast tx --rpc-url reactive_lasna <TX_HASH>
 
 ## 📊 Monitoring
 
-### Watch for Callback Events
+### Watch for Callback Events on Reactive Network
 
-Monitor when your scheduler sends callbacks to Sepolia:
+Monitor when SchedulerRSC sends callbacks:
 
 ```bash
-# Watch for Callback events
+# Watch for Callback events from SchedulerRSC
 cast logs \
   --address <SCHEDULER_ADDRESS> \
+  --event "Callback(uint256,address,uint64,bytes)" \
   --rpc-url reactive_lasna
 ```
 
-### Check Callback History
+### Monitor AutoYieldVault Events on Sepolia
 
-On Sepolia, check if callbacks are being executed:
+**Watch for RebalancingTriggered events:**
 
 ```bash
-# Watch for transactions to your vault
+# Real-time monitoring
 cast logs \
   --address <VAULT_ADDRESS> \
+  --event "RebalancingTriggered(address,uint256,uint256)" \
+  --rpc-url sepolia \
+  --follow
+
+# Or check from specific block
+cast logs \
+  --address <VAULT_ADDRESS> \
+  --event "RebalancingTriggered(address,uint256,uint256)" \
+  --from-block <START_BLOCK> \
   --rpc-url sepolia
+```
+
+**Decode event details:**
+
+```bash
+# Get latest RebalancingTriggered event
+cast logs \
+  --address <VAULT_ADDRESS> \
+  --event "RebalancingTriggered(address,uint256,uint256)" \
+  --rpc-url sepolia \
+  | jq '.[0]'
+```
+
+**Expected output:**
+```json
+{
+  "address": "0x...",
+  "topics": [
+    "0x...",  // Event signature
+    "0x...",  // caller (indexed)
+    "0x..."   // timestamp (indexed)
+  ],
+  "data": "0x...",  // blockNumber
+  "blockNumber": "0x...",
+  "transactionHash": "0x..."
+}
+```
+
+### Verify Cross-Chain Integration
+
+**Check that callbacks are flowing correctly:**
+
+1. **On Reactive Network:** SchedulerRSC emits Callback
+2. **Cross-chain execution:** Reactive Network processes callback
+3. **On Sepolia:** AutoYieldVault emits RebalancingTriggered
+
+**Quick verification script:**
+
+```bash
+SCHEDULER=<SCHEDULER_ADDRESS>
+VAULT=<VAULT_ADDRESS>
+
+echo "=== SchedulerRSC Callbacks (Reactive Network) ==="
+cast logs --address $SCHEDULER \
+  --event "Callback(uint256,address,uint64,bytes)" \
+  --rpc-url reactive_lasna \
+  | jq 'length'
+
+echo "=== AutoYieldVault Events (Sepolia) ==="
+cast logs --address $VAULT \
+  --event "RebalancingTriggered(address,uint256,uint256)" \
+  --rpc-url sepolia \
+  | jq 'length'
+
+echo "Events should match or Sepolia count should be close to Reactive count"
 ```
 
 ## 🎯 Quick Reference
 
-### Deploy to Lasna Testnet (Complete Process)
+### Complete Deployment Workflow (From Scratch)
 
+**Step 1: Deploy AutoYieldVault to Sepolia**
 ```bash
-# Load environment variables
+# Load environment
 source .env
 
-# Deploy contract (subscription happens automatically)
-forge create src/SchedulerRSC.sol:SchedulerRSC \
+# Deploy vault (owner is automatically set to deployer)
+VAULT=$(forge create src/AutoYieldVault.sol:AutoYieldVault \
+  --rpc-url sepolia \
+  --private-key $PRIVATE_KEY_SEPOLIA \
+  --value 0.01ether \
+  --json | jq -r '.deployedTo')
+
+echo "Vault deployed at: $VAULT"
+echo "TARGET_VAULT=$VAULT" >> .env
+```
+
+**Step 2: Deploy SchedulerRSC to Reactive Network**
+```bash
+# Load updated .env with vault address
+source .env
+
+# Deploy scheduler (subscription happens automatically)
+SCHEDULER=$(forge create src/SchedulerRSC.sol:SchedulerRSC \
   --broadcast \
   --rpc-url reactive_lasna \
   --private-key $PRIVATE_KEY_REACTIVE \
   --value 0.1ether \
-  --constructor-args $TARGET_VAULT $INTERVAL
+  --constructor-args $TARGET_VAULT $INTERVAL \
+  --json | jq -r '.deployedTo')
+
+echo "Scheduler deployed at: $SCHEDULER"
 ```
 
-### Check Contract Status (One-Liner)
+**Step 3: Verify Integration**
+```bash
+# Watch for events (in separate terminal)
+cast logs --address $VAULT \
+  --event "RebalancingTriggered(address,uint256,uint256)" \
+  --rpc-url sepolia \
+  --follow
+```
+
+### Check Contract Status (One-Liners)
+
+**AutoYieldVault Status:**
+```bash
+VAULT=<VAULT_ADDRESS> && \
+echo "Owner: $(cast call $VAULT 'owner()(address)' --rpc-url sepolia)"
+```
+
+**SchedulerRSC Status:**
+```bash
+SCHEDULER=<SCHEDULER_ADDRESS> && \
+echo "Interval: $(cast call $SCHEDULER 'interval()(uint256)' --rpc-url reactive_lasna)" && \
+echo "Target Vault: $(cast call $SCHEDULER 'targetVault()(address)' --rpc-url reactive_lasna)" && \
+echo "Owner: $(cast call $SCHEDULER 'owner()(address)' --rpc-url reactive_lasna)" && \
+echo "Balance: $(cast balance $SCHEDULER --rpc-url reactive_lasna --ether) REACT"
+```
+
+### Manual Trigger (Testing)
 
 ```bash
-ADDR=<SCHEDULER_ADDRESS> && \
-echo "Interval: $(cast call $ADDR 'interval()(uint256)' --rpc-url reactive_lasna)" && \
-echo "Target Vault: $(cast call $ADDR 'targetVault()(address)' --rpc-url reactive_lasna)" && \
-echo "Owner: $(cast call $ADDR 'owner()(address)' --rpc-url reactive_lasna)" && \
-echo "Balance: $(cast balance $ADDR --rpc-url reactive_lasna --ether) REACT"
+# Manually trigger rebalancing from any address
+cast send <VAULT_ADDRESS> "checkAndRebalance()" \
+  --rpc-url sepolia \
+  --private-key $PRIVATE_KEY_SEPOLIA
+
+# Check event was emitted
+cast logs --address <VAULT_ADDRESS> \
+  --event "RebalancingTriggered(address,uint256,uint256)" \
+  --rpc-url sepolia \
+  | tail -1
 ```
 
 ## 📚 Additional Resources

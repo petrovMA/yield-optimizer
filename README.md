@@ -139,15 +139,23 @@ Cron10000 #5 → counter = 5
 Cron10000 #6 → counter = 6 → TRIGGER CALLBACK → counter = 0
 ```
 
-### 2. **AutoYieldVault.sol** (Sepolia) 🚧 To Be Implemented
+### 2. **AutoYieldVault.sol** (Sepolia) ✅ MVP Implemented
 
-The vault contract that holds user deposits and manages rebalancing.
+The vault contract that receives callbacks from SchedulerRSC.
 
-**Responsibilities:**
+**Location:** `src/AutoYieldVault.sol`
+
+**MVP Features:**
+- Receives cross-chain callbacks from SchedulerRSC
+- Emits `RebalancingTriggered` event when called
+- Owner-controlled administrative functions (`transferOwnership`)
+- Public `checkAndRebalance()` - anyone can trigger
+
+**Future Features:**
 - Accept user deposits
 - Query APY from multiple lending pools
 - Withdraw/deposit funds to maximize yield
-- Execute rebalancing logic when triggered by SchedulerRSC
+- Execute rebalancing logic based on APY comparison
 
 ### 3. **AAVEPoolMock.sol** (Sepolia)
 
@@ -300,11 +308,12 @@ The project includes comprehensive test coverage:
 
 ```
 test/
-├── AAVEPoolMock.t.sol    - 3 tests for mock lending pool
-├── SchedulerRSC.t.sol    - 17 tests for scheduler contract
-└── Counter.t.sol         - 2 tests (default Foundry template)
+├── AAVEPoolMock.t.sol     - 3 tests for mock lending pool
+├── AutoYieldVault.t.sol   - 15 tests for vault contract
+├── SchedulerRSC.t.sol     - 17 tests for scheduler contract
+└── Counter.t.sol          - 2 tests (default Foundry template)
 
-Total: 22 tests, all passing ✓
+Total: 37 tests, all passing ✓
 ```
 
 **Test Results:**
@@ -316,13 +325,19 @@ Ran 3 tests for test/AAVEPoolMock.t.sol:AAVEPoolMockTest
 [PASS] testSupply() (gas: 80924)
 [PASS] testWithdraw() (gas: 91554)
 
+Ran 15 tests for test/AutoYieldVault.t.sol:AutoYieldVaultTest
+[PASS] testAnyoneCanCallCheckAndRebalance() (gas: 15376)
+[PASS] testConstructorSetsOwner() (gas: 10171)
+[PASS] testOwnerCanTransferOwnership() (gas: 23533)
+... (all tests passing)
+
 Ran 17 tests for test/SchedulerRSC.t.sol:SchedulerRSCTest
 [PASS] testAllIntervalsAreValid() (gas: 5285130)
 [PASS] testConstructorAcceptsAllValidIntervals() (gas: 5284971)
 [PASS] testConstructorSetsInterval() (gas: 7937)
 ... (all tests passing)
 
-22 tests passed, 0 failed
+37 tests passed, 0 failed
 ```
 
 ## 🌐 Deployment
@@ -361,7 +376,26 @@ For complete deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 - Post-deployment configuration
 - Troubleshooting guide
 
-### Deploy Mock Contracts to Sepolia
+### Deploy AutoYieldVault to Sepolia
+
+**Step 1: Deploy the Vault**
+```bash
+# Deploy AutoYieldVault
+forge create src/AutoYieldVault.sol:AutoYieldVault \
+  --rpc-url sepolia \
+  --private-key $PRIVATE_KEY_SEPOLIA \
+  --constructor-args <YOUR_ADDRESS>
+```
+
+**Step 2: Update .env**
+```bash
+# Save the deployed vault address
+TARGET_VAULT=<DEPLOYED_VAULT_ADDRESS>
+```
+
+**Step 3: Deploy SchedulerRSC** (see Quick Start above)
+
+### Deploy Mock Contracts to Sepolia (Optional)
 
 ```bash
 # Deploy MockToken (USDT)
