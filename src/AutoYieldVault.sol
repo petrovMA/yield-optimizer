@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "reactive-lib/abstract-base/AbstractCallback.sol";
+import "openzeppelin-contracts/contracts/access/Ownable.sol";
+
 /**
  * @title AutoYieldVault
  * @notice Receives cross-chain callbacks from SchedulerRSC to trigger yield optimization
  * @dev MVP version: Only emits events when rebalancing is triggered
  *      Future versions will implement actual APY checking and fund rebalancing
  */
-contract AutoYieldVault {
-    // ========== STATE VARIABLES ==========
-
-    /// @notice Contract owner with administrative privileges
-    address public owner;
+contract AutoYieldVault is AbstractCallback, Ownable {
 
     // Future expansion (not used in MVP)
     // address public mockAAVEPool;
@@ -30,9 +29,6 @@ contract AutoYieldVault {
         uint256 blockNumber
     );
 
-    /// @notice Emitted when ownership is transferred
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-
     // ========== ERRORS ==========
 
     /// @notice Thrown when caller is not authorized
@@ -41,33 +37,28 @@ contract AutoYieldVault {
     /// @notice Thrown when zero address is provided
     error InvalidAddress(address addr);
 
-    // ========== MODIFIERS ==========
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert Unauthorized(msg.sender);
-        _;
-    }
-
     // ========== CONSTRUCTOR ==========
 
     /**
      * @notice Initializes the vault with deployer as owner
      * @dev Payable to allow funding the contract during deployment
      */
-    constructor() payable {
-        owner = msg.sender;
-        emit OwnershipTransferred(address(0), msg.sender);
+    constructor(address _callbackProxy) AbstractCallback(_callbackProxy) Ownable(msg.sender) payable {
+
     }
 
     // ========== CORE FUNCTIONS ==========
 
     /**
-     * @notice Called by SchedulerRSC or anyone to trigger rebalancing check
+     * @notice Called by SchedulerRSC via Reactive Network callback to trigger rebalancing check
+     * @param _rvmId The RVM ID (ReactVM address) - automatically injected by Reactive Network
      * @dev MVP: Only emits event to demonstrate cross-chain callback works
      *      Future: Will check APYs across pools and rebalance funds if profitable
+     *      IMPORTANT: First parameter must be address for Reactive Network callbacks!
+     *      Reactive Network replaces first 160 bits with RVM ID automatically.
      */
-    function checkAndRebalance() external {
-        emit RebalancingTriggered(msg.sender, block.timestamp, block.number);
+    function checkAndRebalance(address _rvmId) external {
+        emit RebalancingTriggered(_rvmId, block.timestamp, block.number);
 
         // Future implementation:
         // 1. Query APY from AAVEPoolMock: mockAAVEPool.getReserveData(asset)
@@ -76,19 +67,5 @@ contract AutoYieldVault {
         // 4. If profitable: withdraw from lower APY pool
         // 5. If profitable: deposit to higher APY pool
         // 6. Emit detailed rebalancing event with amounts and pools
-    }
-
-    // ========== ADMINISTRATIVE FUNCTIONS ==========
-
-    /**
-     * @notice Transfers ownership to a new address
-     * @param _newOwner New owner address
-     */
-    function transferOwnership(address _newOwner) external onlyOwner {
-        if (_newOwner == address(0)) revert InvalidAddress(_newOwner);
-
-        address oldOwner = owner;
-        owner = _newOwner;
-        emit OwnershipTransferred(oldOwner, _newOwner);
     }
 }

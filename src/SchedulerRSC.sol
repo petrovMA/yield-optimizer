@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "reactive-lib/abstract-base/AbstractReactive.sol";
+import "openzeppelin-contracts/contracts/access/Ownable.sol";
 
 /**
  * @title SchedulerRSC
@@ -10,7 +11,7 @@ import "reactive-lib/abstract-base/AbstractReactive.sol";
  * @dev Supports intervals: 100 (12 min), 1000 (2 hrs), 10000 (28 hrs), 60000 (~1 week)
  *      The 60000 interval counts 6 occurrences of Cron10000 to achieve ~1 week.
  */
-contract SchedulerRSC is AbstractReactive {
+contract SchedulerRSC is AbstractReactive, Ownable {
     // ========== CONSTANTS ==========
 
     // Sepolia testnet chain ID
@@ -22,7 +23,7 @@ contract SchedulerRSC is AbstractReactive {
     uint256 private constant CRON10000_TOPIC = 0xd214e1d84db704ed42d37f538ea9bf71e44ba28bc1cc088b2f5deca654677a56; // ~28 hours
 
     // Gas limit for callback transaction on destination chain
-    uint64 private constant CALLBACK_GAS_LIMIT = 1000000;
+    uint64 private constant CALLBACK_GAS_LIMIT = 3000000;
 
     // Weekly counter threshold (6 * Cron10000 = ~1 week)
     uint256 private constant WEEKLY_ITERATIONS = 6;
@@ -35,9 +36,6 @@ contract SchedulerRSC is AbstractReactive {
     // Cron interval: 100, 1000, 10000, or 60000
     uint256 public interval;
 
-    // Contract owner (deployer) for administrative functions
-    address public owner;
-
     // Counter for weekly mode (60000 interval)
     // Increments on each Cron10000 event, resets after reaching WEEKLY_ITERATIONS
     uint256 public weeklyCounter;
@@ -49,15 +47,7 @@ contract SchedulerRSC is AbstractReactive {
     // ========== ERRORS ==========
 
     error InvalidInterval(uint256 interval);
-    error Unauthorized(address caller);
     error InvalidAddress(address addr);
-
-    // ========== MODIFIERS ==========
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert Unauthorized(msg.sender);
-        _;
-    }
 
     // ========== CONSTRUCTOR ==========
 
@@ -67,14 +57,13 @@ contract SchedulerRSC is AbstractReactive {
      * @param _interval Cron interval (must be 100, 1000, 10000, or 60000)
      * @dev Subscription happens automatically in constructor using if (!vm) check
      */
-    constructor(address _targetVault, uint256 _interval) payable {
+    constructor(address _targetVault, uint256 _interval) payable Ownable(msg.sender) {
         if (_targetVault == address(0))
             revert InvalidAddress(_targetVault);
 
         if (_interval != 100 && _interval != 1000 && _interval != 10000 && _interval != 60000)
             revert InvalidInterval(_interval);
 
-        owner = msg.sender;
         targetVault = _targetVault;
         interval = _interval;
         weeklyCounter = 0;
@@ -156,10 +145,14 @@ contract SchedulerRSC is AbstractReactive {
     /**
      * @notice Emits a Callback event to trigger checkAndRebalance() on Sepolia
      * @dev The Reactive Network will execute this as a cross-chain transaction
+     *      IMPORTANT: Reactive Network automatically replaces the first 160 bits
+     *      of the call arguments with the RVM ID. Therefore, the first argument
+     *      must be an address (which will be replaced with the actual RVM ID).
      */
     function _triggerRebalance() private {
-        // Encode the function call: checkAndRebalance()
-        bytes memory payload = abi.encodeWithSignature("checkAndRebalance()");
+        // Encode the function call: checkAndRebalance(address)
+        // The address(0) will be automatically replaced by Reactive Network with the RVM ID
+        bytes memory payload = abi.encodeWithSignature("checkAndRebalance(address)", address(0));
 
         // Emit Callback event for cross-chain execution
         emit Callback(SEPOLIA_CHAIN_ID, targetVault, CALLBACK_GAS_LIMIT, payload);
@@ -208,5 +201,25 @@ contract SchedulerRSC is AbstractReactive {
      */
     function isWeeklyMode() external view returns (bool) {
         return interval == 60000;
+    }
+
+    /**
+     * @notice Allows owner to withdraw all contract balance
+     * @dev Transfers entire contract balance to the owner
+     */
+    function withdraw() external onlyOwner {
+        uint256 balance = address(this).balance;
+        require(balance > 0, "No balance to withdraw");
+
+        (bool success, ) = payable(owner()).call{value: balance}("");
+        require(success, "Withdrawal failed");
+    }
+
+    /**
+     * @notice View function to check contract balance
+     * @return Current contract balance in wei
+     */
+    function getBalance() external view returns (uint256) {
+        return address(this).balance;
     }
 }

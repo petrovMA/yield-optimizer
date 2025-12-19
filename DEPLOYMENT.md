@@ -186,7 +186,9 @@ forge create src/AutoYieldVault.sol:AutoYieldVault \
   --broadcast \
   --rpc-url sepolia \
   --private-key $PRIVATE_KEY_SEPOLIA \
-  --value 0.01ether
+  --value 0.01ether \
+  --verify \
+  --constructor-args 0xc9f36411C9897e7F959D99ffca2a0Ba7ee0D7bDA
 ```
 
 **Note:** Constructor no longer requires owner parameter - it automatically uses msg.sender (deployer)
