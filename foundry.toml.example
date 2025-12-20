@@ -9,7 +9,7 @@ libs = ["lib"]
 [rpc_endpoints]
 reactive_lasna = "https://lasna-rpc.rnk.dev/"
 reactive_mainnet = "https://kopli-rpc.rkt.ink/"
-sepolia = "${SEPOLIA_RPC_URL}"
+sepolia = "${SEPOLIA_RPC}"
 
 # Etherscan API keys for verification
 [etherscan]
