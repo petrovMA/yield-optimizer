@@ -347,7 +347,7 @@ Ran 17 tests for test/SchedulerRSC.t.sol:SchedulerRSCTest
 ```bash
 # 1. Setup environment
 cp .env.example .env
-nano .env  # Add your PRIVATE_KEY_REACTIVE, TARGET_VAULT, INTERVAL
+nano .env  # Add your PRIVATE_KEY_REACTIVE, AUTO_YIELD_VAULT, INTERVAL
 
 # 2. Load environment variables
 source .env
@@ -358,7 +358,7 @@ forge create src/SchedulerRSC.sol:SchedulerRSC \
   --rpc-url reactive_lasna \
   --private-key $PRIVATE_KEY_REACTIVE \
   --value 0.1ether \
-  --constructor-args $TARGET_VAULT $INTERVAL
+  --constructor-args $AUTO_YIELD_VAULT $INTERVAL
 ```
 
 **That's it!** The contract is deployed and automatically subscribed to cron events.
@@ -390,7 +390,7 @@ forge create src/AutoYieldVault.sol:AutoYieldVault \
 **Step 2: Update .env**
 ```bash
 # Save the deployed vault address
-TARGET_VAULT=<DEPLOYED_VAULT_ADDRESS>
+AUTO_YIELD_VAULT=<DEPLOYED_VAULT_ADDRESS>
 ```
 
 **Step 3: Deploy SchedulerRSC** (see Quick Start above)
