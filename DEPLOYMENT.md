@@ -164,7 +164,7 @@ forge create src/SchedulerRSC.sol:SchedulerRSC \
   --rpc-url reactive_lasna \
   --private-key $PRIVATE_KEY_REACTIVE \
   --value 0.05ether \
-  --constructor-args $AUTO_YIELD_VAULT 1000
+  --constructor-args $AUTO_YIELD_VAULT 100
 ```
 
 Save address as `SCHEDULER_RSC`.
@@ -184,7 +184,7 @@ cast balance $SCHEDULER_RSC --rpc-url reactive_lasna --ether
 # 1. Mint USDT to your address
 cast send $MOCK_USDT \
   "mint(address,uint256)" \
-  <YOUR_ADDRESS> \
+  $TEST_WALLET \
   1000000000000000000000 \
   --rpc-url sepolia \
   --private-key $PRIVATE_KEY_SEPOLIA

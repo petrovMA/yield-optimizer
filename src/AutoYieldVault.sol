@@ -35,6 +35,20 @@ interface IAavePool {
 }
 
 /**
+ * @title ICompoundComet
+ * @notice Interface for Compound V3 (Comet)
+ * @dev Different interface from Aave - uses per-second rates in Wad (1e18)
+ */
+interface ICompoundComet {
+    function supply(address asset, uint256 amount) external;
+    function withdraw(address asset, uint256 amount) external;
+    function getSupplyRate(uint256 utilization) external view returns (uint64);
+    function getUtilization() external view returns (uint256);
+    function baseToken() external view returns (address);
+    function userBalances(address user) external view returns (uint256);
+}
+
+/**
  * @title AutoYieldVault
  * @notice Automated Cross-Chain Yield Optimizer
  * @dev Monitors lending pools (Aave, Spark) and moves funds to the highest APY pool
@@ -49,6 +63,9 @@ contract AutoYieldVault is AbstractCallback, Ownable {
     address[] public lendingPools;          // List of supported pools (Aave, Spark, etc.)
     address public activePool;              // The pool where funds are currently deposited
 
+    // Pool type tracking: false = Aave-style, true = Compound-style
+    mapping(address => bool) public isCompoundPool;
+
     // Threshold to prevent micro-rebalancing (Gas savings)
     // 100 = 1.00% difference required to move funds (assuming Ray math adjustments)
     // Stored in Ray for direct comparison (1% = 0.01 * 1e27)
@@ -56,6 +73,7 @@ contract AutoYieldVault is AbstractCallback, Ownable {
 
     // Constants
     uint256 constant RAY = 1e27;
+    uint256 constant SECONDS_PER_YEAR = 31536000;
 
     // ========== EVENTS ==========
 
@@ -128,6 +146,32 @@ contract AutoYieldVault is AbstractCallback, Ownable {
 
     // ========== CORE LOGIC ==========
 
+    /**
+     * @notice Get APY rate from pool in Ray format (1e27)
+     * @dev Handles both Aave-style and Compound-style pools
+     */
+    function _getPoolRateInRay(address poolAddr) internal view returns (uint256 rate, bool success) {
+        if (isCompoundPool[poolAddr]) {
+            // Compound-style pool: rate is per-second in Wad (1e18)
+            try ICompoundComet(poolAddr).getSupplyRate(0) returns (uint64 ratePerSecond) {
+                // Convert per-second Wad rate to annual Ray rate
+                // APY_Ray = ratePerSecond * SECONDS_PER_YEAR * 1e9
+                rate = uint256(ratePerSecond) * SECONDS_PER_YEAR * 1e9;
+                success = true;
+            } catch {
+                success = false;
+            }
+        } else {
+            // Aave-style pool: rate is already in Ray
+            try IAavePool(poolAddr).getReserveData(address(asset)) returns (IAavePool.ReserveData memory data) {
+                rate = data.currentLiquidityRate;
+                success = true;
+            } catch {
+                success = false;
+            }
+        }
+    }
+
     function _executeRebalanceLogic() internal {
         if (lendingPools.length < 2) return; // Nothing to compare
 
@@ -139,21 +183,17 @@ contract AutoYieldVault is AbstractCallback, Ownable {
         for (uint i = 0; i < lendingPools.length; i++) {
             address poolAddr = lendingPools[i];
 
-            // Fetch data from Mock/Real contract
-            try IAavePool(poolAddr).getReserveData(address(asset)) returns (IAavePool.ReserveData memory data) {
-                uint256 rate = data.currentLiquidityRate;
+            (uint256 rate, bool success) = _getPoolRateInRay(poolAddr);
 
-                if (poolAddr == activePool) {
-                    currentPoolRate = rate;
-                }
+            if (!success) continue;
 
-                if (rate > highestRate) {
-                    highestRate = rate;
-                    bestPool = poolAddr;
-                }
-            } catch {
-                // Ignore failed pool calls (resilience)
-                continue;
+            if (poolAddr == activePool) {
+                currentPoolRate = rate;
+            }
+
+            if (rate > highestRate) {
+                highestRate = rate;
+                bestPool = poolAddr;
             }
         }
 
@@ -173,18 +213,32 @@ contract AutoYieldVault is AbstractCallback, Ownable {
     }
 
     function _moveFunds(address _from, address _to, uint256 _oldRate, uint256 _newRate) internal {
-        // A. Withdraw everything from current pool
-        // Note: In real Aave, type(uint256).max withdraws all. Mocks should support this or use balance check.
-        // We will check our balance in the pool implicitly by withdrawing what we have.
+        uint256 withdrawnAmount;
 
-        // Attempt to withdraw max. Our Mock returns the actual amount withdrawn.
-        uint256 withdrawnAmount = IAavePool(_from).withdraw(address(asset), type(uint256).max, address(this));
+        // A. Withdraw everything from current pool
+        if (isCompoundPool[_from]) {
+            // Compound: get balance first, then withdraw
+            uint256 balance = ICompoundComet(_from).userBalances(address(this));
+            if (balance > 0) {
+                ICompoundComet(_from).withdraw(address(asset), balance);
+            }
+            withdrawnAmount = balance;
+        } else {
+            // Aave: withdraw max
+            withdrawnAmount = IAavePool(_from).withdraw(address(asset), type(uint256).max, address(this));
+        }
+
+        if (withdrawnAmount == 0) return;
 
         // B. Approve new pool
         asset.forceApprove(_to, withdrawnAmount);
 
         // C. Supply to new pool
-        IAavePool(_to).supply(address(asset), withdrawnAmount, address(this), 0);
+        if (isCompoundPool[_to]) {
+            ICompoundComet(_to).supply(address(asset), withdrawnAmount);
+        } else {
+            IAavePool(_to).supply(address(asset), withdrawnAmount, address(this), 0);
+        }
 
         // D. Update state
         activePool = _to;
@@ -207,7 +261,12 @@ contract AutoYieldVault is AbstractCallback, Ownable {
 
         // 2. Supply to the currently active pool
         asset.forceApprove(activePool, amount);
-        IAavePool(activePool).supply(address(asset), amount, address(this), 0);
+
+        if (isCompoundPool[activePool]) {
+            ICompoundComet(activePool).supply(address(asset), amount);
+        } else {
+            IAavePool(activePool).supply(address(asset), amount, address(this), 0);
+        }
 
         emit Deposit(msg.sender, amount);
     }
@@ -222,7 +281,11 @@ contract AutoYieldVault is AbstractCallback, Ownable {
         require(activePool != address(0), "No active pool");
 
         // 1. Withdraw from active pool to Vault
-        IAavePool(activePool).withdraw(address(asset), amount, address(this));
+        if (isCompoundPool[activePool]) {
+            ICompoundComet(activePool).withdraw(address(asset), amount);
+        } else {
+            IAavePool(activePool).withdraw(address(asset), amount, address(this));
+        }
 
         // 2. Transfer to User
         asset.safeTransfer(msg.sender, amount);
@@ -236,9 +299,32 @@ contract AutoYieldVault is AbstractCallback, Ownable {
         rebalanceThresholdRay = _newThresholdRay;
     }
 
+    /**
+     * @notice Add a new Aave-style lending pool
+     * @param _pool Pool address
+     */
     function addLendingPool(address _pool) external onlyOwner {
         lendingPools.push(_pool);
         emit PoolAdded(_pool);
+    }
+
+    /**
+     * @notice Add a new Compound-style lending pool
+     * @param _pool Pool address
+     */
+    function addCompoundPool(address _pool) external onlyOwner {
+        lendingPools.push(_pool);
+        isCompoundPool[_pool] = true;
+        emit PoolAdded(_pool);
+    }
+
+    /**
+     * @notice Set pool type (for existing pools)
+     * @param _pool Pool address
+     * @param _isCompound true if Compound-style, false if Aave-style
+     */
+    function setPoolType(address _pool, bool _isCompound) external onlyOwner {
+        isCompoundPool[_pool] = _isCompound;
     }
 
     /**
