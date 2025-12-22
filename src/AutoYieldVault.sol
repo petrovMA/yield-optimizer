@@ -331,4 +331,98 @@ contract AutoYieldVault is AbstractCallback, Ownable {
      * @notice Allow contract to receive ETH (needed for gas/deployment costs sometimes)
      */
     receive() external payable override {}
+
+    // ========== VIEW FUNCTIONS ==========
+
+    /**
+     * @notice Get best pool info without executing rebalance
+     * @return bestPool Address of pool with highest APY
+     * @return bestRate APY of best pool in Ray (1e27)
+     * @return currentRate APY of current active pool in Ray
+     * @return shouldRebalance Whether rebalance threshold is met
+     */
+    function getBestPool() external view returns (
+        address bestPool,
+        uint256 bestRate,
+        uint256 currentRate,
+        bool shouldRebalance
+    ) {
+        if (lendingPools.length < 2) {
+            return (activePool, 0, 0, false);
+        }
+
+        uint256 highestRate = 0;
+        bestPool = activePool;
+        currentRate = 0;
+
+        // Scan all pools for the best rate
+        for (uint i = 0; i < lendingPools.length; i++) {
+            address poolAddr = lendingPools[i];
+
+            (uint256 rate, bool success) = _getPoolRateInRay(poolAddr);
+
+            if (!success) continue;
+
+            if (poolAddr == activePool) {
+                currentRate = rate;
+            }
+
+            if (rate > highestRate) {
+                highestRate = rate;
+                bestPool = poolAddr;
+            }
+        }
+
+        bestRate = highestRate;
+
+        // Check if rebalance should happen
+        shouldRebalance = (bestPool != activePool) &&
+                         (highestRate > currentRate + rebalanceThresholdRay);
+    }
+
+    /**
+     * @notice Get APY rates for all pools
+     * @return pools Array of pool addresses
+     * @return rates Array of APY rates in Ray (1e27)
+     * @return successes Array indicating if rate fetch was successful
+     */
+    function getAllPoolRates() external view returns (
+        address[] memory pools,
+        uint256[] memory rates,
+        bool[] memory successes
+    ) {
+        uint256 length = lendingPools.length;
+        pools = new address[](length);
+        rates = new uint256[](length);
+        successes = new bool[](length);
+
+        for (uint i = 0; i < length; i++) {
+            pools[i] = lendingPools[i];
+            (rates[i], successes[i]) = _getPoolRateInRay(lendingPools[i]);
+        }
+    }
+
+    // ========== DEBUG FUNCTIONS ==========
+
+    /**
+     * @notice Check if address is authorized sender (for debugging)
+     */
+    function isAuthorizedSender(address _sender) external view returns (bool) {
+        return senders[_sender];
+    }
+
+    /**
+     * @notice Add authorized sender (for testing only)
+     * @dev WARNING: Remove in production!
+     */
+    function addAuthorizedSenderPublic(address _sender) external onlyOwner {
+        senders[_sender] = true;
+    }
+
+    /**
+     * @notice Get RVM ID (for debugging)
+     */
+    function getRvmId() external view returns (address) {
+        return rvm_id;
+    }
 }

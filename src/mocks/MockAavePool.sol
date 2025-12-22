@@ -41,7 +41,14 @@ contract MockAavePool {
     }
 
     function withdraw(address asset, uint256 amount, address to) external returns (uint256) {
-        require(userBalances[asset][msg.sender] >= amount, "Not enough balance");
+        uint256 userBalance = userBalances[asset][msg.sender];
+
+        // Handle type(uint256).max as "withdraw all" (like real Aave V3)
+        if (amount == type(uint256).max) {
+            amount = userBalance;
+        }
+
+        require(userBalance >= amount, "Not enough balance");
 
         // Обновляем баланс
         userBalances[asset][msg.sender] -= amount;
