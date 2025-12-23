@@ -1,4 +1,79 @@
-# React + TypeScript + Vite
+# Cross-Chain Yield Optimizer - Frontend
+
+Web interface for the Cross-Chain Yield Optimizer built with React + TypeScript + Vite + shadcn/ui.
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **Node.js** 18.x or higher
+- **pnpm** 8.x or higher (recommended) or npm/yarn
+
+```bash
+# Install pnpm globally if you don't have it
+npm install -g pnpm
+```
+
+### Development Setup
+
+```bash
+# Install dependencies
+pnpm install
+
+# Start development server
+pnpm dev
+
+# Open browser at http://localhost:5173
+```
+
+### Build for Production
+
+```bash
+# Build optimized production bundle
+pnpm build
+
+# Preview production build locally
+pnpm preview
+```
+
+### Other Commands
+
+```bash
+# Lint code
+pnpm lint
+
+# Type check
+pnpm type-check  # (if available in package.json)
+```
+
+## 📦 Tech Stack
+
+- **React 18** - UI library
+- **TypeScript** - Type safety
+- **Vite** - Fast build tool and dev server
+- **shadcn/ui** - Component library
+- **Tailwind CSS** - Utility-first CSS
+- **Recharts** - Data visualization
+- **TanStack Query** - Data fetching
+
+## 📁 Project Structure
+
+```
+frontend/
+├── src/
+│   ├── components/     # React components
+│   │   └── ui/        # shadcn/ui components
+│   ├── lib/           # Utilities and helpers
+│   ├── assets/        # Static assets
+│   ├── App.tsx        # Main app component
+│   └── main.tsx       # Entry point
+├── public/            # Public static files
+└── index.html         # HTML template
+```
+
+---
+
+## 🔧 Vite Configuration Details
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
