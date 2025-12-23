@@ -85,10 +85,10 @@ This project implements a **cross-chain yield optimization system** that:
 │                       ↓                                       │
 │  ┌─────────────────────────────────────────────────────────┐  │
 │  │  1. Query APY from all pools                            │  │
-│  │     ┌──────────────┐  ┌──────────────┐                  │  │
-│  │     │ AAVEPoolMock │  │ SparkPoolMock│                  │  │
-│  │     │  APY: 4.5%   │  │  APY: 5.2%   │                  │  │
-│  │     └──────────────┘  └──────────────┘                  │  │
+│  │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │  │
+│  │   │   AAVEPool   │  │  SparkPool   │  │ CompoundPool │  │  │
+│  │   │  APY: 4.5%   │  │  APY: 5.2%   │  │   APY: 5%    │  │  │
+│  │   └──────────────┘  └──────────────┘  └──────────────┘  │  │
 │  │                                                         │  │
 │  │  2. Find highest APY pool (Spark: 5.2%)                 │  │
 │  │                                                         │  │

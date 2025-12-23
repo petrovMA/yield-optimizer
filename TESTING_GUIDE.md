@@ -231,9 +231,11 @@ cast send $SPARK_POOL "setLiquidityRate(address,uint256)" \
 **Set Compound Pool to ~3% APY:**
 ```bash
 # Calculate per-second rate for 3% APY
-# 3% APY in per-second Wad: ~951293759512937600
+# Formula: rate_per_second = (APY / SECONDS_PER_YEAR) * 1e18
+# 3% = 0.03 / 31536000 * 1e18 = 951293759 (truncated to fit uint64)
+# NOTE: Compound uses per-second rates stored as uint64, NOT Ray (1e27)
 cast send $COMPOUND_COMET "setSupplyRate(uint256)" \
-  951293759512937600 \
+  951293759 \
   --private-key $PRIVATE_KEY_SEPOLIA \
   --rpc-url $SEPOLIA_RPC
 ```
@@ -496,9 +498,9 @@ cast send $AUTO_YIELD_VAULT "manualRebalance()" \
 cast call $AUTO_YIELD_VAULT "activePool()(address)" --rpc-url $SEPOLIA_RPC
 
 # Step 3: Set COMPOUND to 10% APY (per-second rate)
-# 10% APY ≈ 3170979198376458650 per second (Wad format)
+# 10% APY = 3170979198 per second (truncated to fit uint64)
 cast send $COMPOUND_COMET "setSupplyRate(uint256)" \
-  3170979198376458650 \
+  3170979198 \
   --private-key $PRIVATE_KEY_SEPOLIA --rpc-url $SEPOLIA_RPC
 
 # Step 4: Trigger rebalance (AAVE → COMPOUND)
@@ -642,9 +644,10 @@ cast send $AUTO_YIELD_VAULT "deposit(uint256)" \
 
 **Wad Per Second (Compound):**
 ```
-3% APY  ≈ 951293759512937600  per second
-5% APY  ≈ 1585489599188229325 per second
-10% APY ≈ 3170979198376458650 per second
+1% APY  = 317097919     per second  (0.01 / 31536000 * 1e18, truncated)
+3% APY  = 951293759     per second  (0.03 / 31536000 * 1e18, truncated)
+5% APY  = 1585489599    per second  (0.05 / 31536000 * 1e18, truncated)
+10% APY = 3170979198    per second  (0.10 / 31536000 * 1e18, truncated)
 ```
 
 ### Event Signature Hashes

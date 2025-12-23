@@ -35,6 +35,50 @@ ETHERSCAN_API_KEY=your_etherscan_api_key
 - Explorer: https://sepolia.etherscan.io
 - Callback Proxy: `0xc9f36411C9897e7F959D99ffca2a0Ba7ee0D7bDA`
 
+## APY Format Reference
+
+Before deploying, understand the two different APY formats used by the mock contracts:
+
+### Aave/Spark - Ray Format (1e27)
+- **Format**: Annual percentage rate in Ray (1e27 = 100%)
+- **Example**: 5% APY = 0.05 * 1e27 = `50000000000000000000000000`
+- **Calculation**: `APY_percentage * 1e25`
+
+**Common Values:**
+```
+1% APY   = 10000000000000000000000000   (1e25)
+3% APY   = 30000000000000000000000000   (3e25)
+5% APY   = 50000000000000000000000000   (5e25)
+10% APY  = 100000000000000000000000000  (1e26)
+```
+
+### Compound V3 - Per-Second Rate in Wad (1e18)
+- **Format**: Per-second interest rate in Wad (1e18)
+- **Formula**: `rate_per_second = APY / SECONDS_PER_YEAR * 1e18`
+- **SECONDS_PER_YEAR**: 31536000
+
+**Common Values:**
+```
+1% APY   = 317097919     per second
+3% APY   = 951293759     per second
+5% APY   = 1585489599    per second
+10% APY  = 3170979198    per second
+```
+
+**Conversion to Ray (done by AutoYieldVault):**
+```solidity
+// Compound per-second rate (Wad) → Annual rate (Ray)
+APY_Ray = rate_per_second * SECONDS_PER_YEAR * 1e9
+```
+
+**Example:**
+```
+5% APY in Compound:
+  Input:  1585489599 (per-second Wad)
+  Output: 1585489599 * 31536000 * 1e9 = 50000000000000000000000000 (Ray)
+  Result: 5e25 = 5% ✓
+```
+
 ## Deployment Steps
 
 ### 1. Deploy MockToken (USDT) on Sepolia
@@ -115,10 +159,33 @@ Save address as `COMPOUND_COMET`.
 
 **Set supply rate to ~5% APY:**
 ```bash
-# 1585489599 = ~5% APY in per-second rate (Wad format)
+# Compound V3 uses per-second interest rates (stored as uint64)
+# Formula: rate_per_second = (APY / SECONDS_PER_YEAR) * 1e18
+#          But result must fit in uint64, so we truncate decimals
+#
+# For 5% APY:
+#   rate_per_second = 0.05 / 31536000 * 1e18
+#   rate_per_second = 1585489599 (truncated to fit uint64)
+#
+# IMPORTANT: This is DIFFERENT from Aave/Spark which use Ray format (1e27)
+# Compound: uint64 per-second rate (fits ~9 digits for realistic APY)
+# Aave:     Ray (1e27) annual rate
+#
+# The AutoYieldVault converts Compound's per-second rate to annual Ray:
+#   APY_Ray = rate_per_second * SECONDS_PER_YEAR * 1e9
+#
+# Example verification:
+#   1585489599 * 31536000 * 1e9 ≈ 50000000000000000000000000 (5e25 = 5%)
+#
+# Common values:
+#   1% APY  = 317097919
+#   3% APY  = 951293759
+#   5% APY  = 1585489599
+#   10% APY = 3170979198
+
 cast send $COMPOUND_COMET \
   "setSupplyRate(uint256)" \
-  1585489599 \
+  3170979198 \
   --rpc-url sepolia \
   --private-key $PRIVATE_KEY_SEPOLIA
 ```
@@ -163,7 +230,7 @@ forge create src/SchedulerRSC.sol:SchedulerRSC \
   --broadcast \
   --rpc-url reactive_lasna \
   --private-key $PRIVATE_KEY_REACTIVE \
-  --value 0.03ether \
+  --value 0.015ether \
   --constructor-args $AUTO_YIELD_VAULT 100
 ```
 
