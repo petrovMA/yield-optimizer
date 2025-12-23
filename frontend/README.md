@@ -6,7 +6,7 @@ Web interface for the Cross-Chain Yield Optimizer built with React + TypeScript 
 
 ### Prerequisites
 
-- **Node.js** 18.x or higher
+- **Node.js** 18.x or higher (20.x+ recommended)
 - **pnpm** 8.x or higher (recommended) or npm/yarn
 
 ```bash
