@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "reactive-lib/abstract-base/AbstractReactive.sol";
-import "openzeppelin-contracts/contracts/access/Ownable.sol";
+import "reactive-lib/abstract-base/AbstractPausableReactive.sol";
 
 /**
  * @title SchedulerRSC
@@ -10,8 +9,9 @@ import "openzeppelin-contracts/contracts/access/Ownable.sol";
  *         the AutoYieldVault contract on Sepolia to check and rebalance funds.
  * @dev Supports intervals: 100 (12 min), 1000 (2 hrs), 10000 (28 hrs), 60000 (~1 week)
  *      The 60000 interval counts 6 occurrences of Cron10000 to achieve ~1 week.
+ *      Supports pause/resume functionality via AbstractPausableReactive.
  */
-contract SchedulerRSC is AbstractReactive, Ownable {
+contract SchedulerRSC is AbstractPausableReactive {
     // ========== CONSTANTS ==========
 
     // Sepolia testnet chain ID
@@ -56,8 +56,9 @@ contract SchedulerRSC is AbstractReactive, Ownable {
      * @param _targetVault Address of the AutoYieldVault contract on Sepolia
      * @param _interval Cron interval (must be 100, 1000, 10000, or 60000)
      * @dev Subscription happens automatically in constructor using if (!vm) check
+     *      Owner is set automatically by AbstractPausableReactive constructor
      */
-    constructor(address _targetVault, uint256 _interval) payable Ownable(msg.sender) {
+    constructor(address _targetVault, uint256 _interval) payable {
         if (_targetVault == address(0))
             revert InvalidAddress(_targetVault);
 
@@ -172,6 +173,34 @@ contract SchedulerRSC is AbstractReactive, Ownable {
         revert InvalidInterval(_interval);
     }
 
+    /**
+     * @notice Returns the list of subscriptions for pause/resume functionality
+     * @dev Required by AbstractPausableReactive
+     * @return Array containing the single Cron event subscription
+     */
+    function getPausableSubscriptions() internal view override returns (Subscription[] memory) {
+        Subscription[] memory subscriptions = new Subscription[](1);
+
+        uint256 topic;
+        // For 60000 (weekly), subscribe to Cron10000
+        if (interval == 60000) {
+            topic = CRON10000_TOPIC;
+        } else {
+            topic = _getTopicForInterval(interval);
+        }
+
+        subscriptions[0] = Subscription({
+            chain_id: block.chainid,
+            _contract: address(service),
+            topic_0: topic,
+            topic_1: REACTIVE_IGNORE,
+            topic_2: REACTIVE_IGNORE,
+            topic_3: REACTIVE_IGNORE
+        });
+
+        return subscriptions;
+    }
+
     // ========== ADMINISTRATIVE FUNCTIONS ==========
 
     /**
@@ -211,7 +240,7 @@ contract SchedulerRSC is AbstractReactive, Ownable {
         uint256 balance = address(this).balance;
         require(balance > 0, "No balance to withdraw");
 
-        (bool success, ) = payable(owner()).call{value: balance}("");
+        (bool success, ) = payable(owner).call{value: balance}("");
         require(success, "Withdrawal failed");
     }
 
