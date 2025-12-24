@@ -225,10 +225,10 @@ Choose interval:
 - `60000` = ~1 week
 
 ```bash
-# Deploy with interval 1000 (2 hours)
+# Deploy with interval 100 (12 min)
 forge create src/SchedulerRSC.sol:SchedulerRSC \
   --broadcast \
-  --rpc-url reactive_lasna \
+  --rpc-url $REACTIVE_RPC \
   --private-key $PRIVATE_KEY_REACTIVE \
   --value 0.015ether \
   --constructor-args $AUTO_YIELD_VAULT 100
@@ -242,6 +242,18 @@ cast call $SCHEDULER_RSC "targetVault()(address)" --rpc-url reactive_lasna
 cast call $SCHEDULER_RSC "interval()(uint256)" --rpc-url reactive_lasna
 cast balance $SCHEDULER_RSC --rpc-url reactive_lasna --ether
 ```
+
+**Verify contract on Reactive Lasna:**
+```bash
+forge verify-contract $SCHEDULER_RSC \
+  src/SchedulerRSC.sol:SchedulerRSC \
+  --rpc-url https://lasna-rpc.rnk.dev/ \
+  --verifier blockscout \
+  --verifier-url https://lasna.reactscan.net/api \
+  --constructor-args $(cast abi-encode "constructor(address,uint256)" $AUTO_YIELD_VAULT 100)
+```
+
+**Note:** Reactive Network uses Blockscout for verification, not Etherscan.
 
 ## Post-Deployment Testing
 

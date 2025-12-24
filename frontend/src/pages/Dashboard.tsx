@@ -3,12 +3,19 @@ import { ethers } from 'ethers';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { 
-  Zap, 
-  Wallet, 
-  TrendingUp, 
-  Activity, 
-  Clock, 
+import { useToast } from '@/hooks/use-toast';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  Zap,
+  Wallet,
+  TrendingUp,
+  Activity,
+  Clock,
   AlertTriangle,
   CheckCircle2,
   ArrowUpRight,
@@ -20,6 +27,12 @@ import {
 } from 'lucide-react';
 
 // ========== TYPES ==========
+
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
 
 interface PoolConfig {
   name: string;
@@ -46,12 +59,25 @@ interface ContractData {
 
 // ========== CONSTANTS ==========
 
-// Deployed Contract Addresses (Sepolia)
-const AUTO_YIELD_VAULT = '0xc8F25cf0aB99e77D8671301c2f19B03554F80B5b';
-const SCHEDULER_RSC = '0xa2Ff933482F45C3159fBbfe28a1a65e7e7b5912E';
+// Deployed Contract Addresses
+const AUTO_YIELD_VAULT = '0xc8F25cf0aB99e77D8671301c2f19B03554F80B5b'; // Sepolia
+const SCHEDULER_RSC = '0x76E2618fbF423528ed3dF070024D445eCc71421E'; // Reactive Network (from scripts)
 const AAVE_POOL = '0x1DbaE63b3a7dd56438eCd25c1816d53E519b6720';
 const SPARK_POOL = '0x548a8308464bDF1F96409ef684537137bcd0C7E2';
 const COMPOUND_COMET = '0x985d3d497f39C7359DC535205b3b1c7e49063A5B';
+
+// Network Configuration
+const REACTIVE_NETWORK = {
+  chainId: '0x512577', // 5318007 in hex (Lasna Testnet)
+  chainName: 'Reactive Lasna Testnet',
+  rpcUrls: ['https://lasna-rpc.rnk.dev/'],
+  nativeCurrency: {
+    name: 'REACT',
+    symbol: 'REACT',
+    decimals: 18,
+  },
+  blockExplorerUrls: ['https://lasna.reactscan.net/'],
+};
 
 // Pool Configuration Mapping
 const POOLS_CONFIG: Record<string, PoolConfig> = {
@@ -94,7 +120,8 @@ const VAULT_ABI = [
 const SCHEDULER_ABI = [
   'function pause() external',
   'function resume() external',
-  'function paused() external view returns (bool)',
+  'function isPaused() external view returns (bool)',
+  'function owner() external view returns (address)',
 ];
 
 // ========== UTILITY FUNCTIONS ==========
@@ -118,9 +145,24 @@ const getPoolConfig = (address: string): PoolConfig => {
   };
 };
 
+// Get explorer URL for contract address
+const getExplorerUrl = (address: string, isReactiveNetwork = false): string => {
+  if (isReactiveNetwork) {
+    return `https://lasna.reactscan.net/address/${address}`;
+  }
+  return `https://sepolia.etherscan.io/address/${address}`;
+};
+
 // ========== MAIN COMPONENT ==========
 
 export default function Dashboard() {
+  const { toast } = useToast();
+
+  // Wallet state
+  const [walletAddress, setWalletAddress] = useState<string>('');
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  // Contract data state
   const [contractData, setContractData] = useState<ContractData>({
     bestPool: '',
     bestRate: 0n,
@@ -134,7 +176,10 @@ export default function Dashboard() {
     error: null,
   });
 
+  // Scheduler state
   const [isPaused, setIsPaused] = useState(false);
+  const [isPauseLoading, setIsPauseLoading] = useState(false);
+  const [schedulerOwner, setSchedulerOwner] = useState<string>('');
   const [blocksUntilCron, setBlocksUntilCron] = useState(45);
   const [isRebalancing, setIsRebalancing] = useState(false);
 
@@ -198,6 +243,204 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch scheduler paused status
+  // Note: Current contract doesn't have public paused() getter - needs redeploy with isPaused()
+  useEffect(() => {
+    const fetchPausedStatus = async () => {
+      try {
+        const provider = new ethers.JsonRpcProvider(REACTIVE_NETWORK.rpcUrls[0]);
+        const schedulerContract = new ethers.Contract(SCHEDULER_RSC, SCHEDULER_ABI, provider);
+        // Try isPaused() first (new contracts), fallback to paused() (if exists)
+        try {
+          const paused = await schedulerContract.isPaused();
+          setIsPaused(paused);
+        } catch {
+          // Contract doesn't have isPaused() - assume not paused or check via other means
+          console.warn('Contract does not have isPaused() getter - needs redeploy');
+        }
+      } catch (err) {
+        console.error('Failed to fetch paused status:', err);
+      }
+    };
+
+    fetchPausedStatus();
+    const interval = setInterval(fetchPausedStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ========== WALLET FUNCTIONS ==========
+
+  const connectWallet = async () => {
+    try {
+      setIsConnecting(true);
+
+      if (!window.ethereum) {
+        toast({
+          title: 'MetaMask not found',
+          description: 'Please install MetaMask to connect your wallet',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Request account access
+      const accounts = await window.ethereum.request({
+        method: 'eth_requestAccounts',
+      });
+
+      setWalletAddress(accounts[0]);
+
+      toast({
+        title: 'Wallet Connected',
+        description: `Connected to ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`,
+      });
+    } catch (err) {
+      console.error('Failed to connect wallet:', err);
+      toast({
+        title: 'Connection Failed',
+        description: err instanceof Error ? err.message : 'Failed to connect wallet',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  // ========== SCHEDULER FUNCTIONS ==========
+
+  const switchToReactiveNetwork = async () => {
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: REACTIVE_NETWORK.chainId }],
+      });
+      return true;
+    } catch (switchError: any) {
+      // Chain not added to MetaMask
+      if (switchError.code === 4902) {
+        try {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [REACTIVE_NETWORK],
+          });
+          return true;
+        } catch (addError) {
+          console.error('Failed to add Reactive Network:', addError);
+          throw addError;
+        }
+      }
+      throw switchError;
+    }
+  };
+
+  const pauseScheduler = async () => {
+    if (!walletAddress) {
+      toast({
+        title: 'Wallet Not Connected',
+        description: 'Please connect your wallet first',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsPauseLoading(true);
+
+      // Switch to Reactive Network
+      await switchToReactiveNetwork();
+
+      // Get signer
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      // Create contract instance
+      const schedulerContract = new ethers.Contract(SCHEDULER_RSC, SCHEDULER_ABI, signer);
+
+      // Send pause transaction
+      toast({
+        title: 'Transaction Pending',
+        description: 'Pausing scheduler...',
+      });
+
+      const tx = await schedulerContract.pause();
+      await tx.wait();
+
+      setIsPaused(true);
+
+      toast({
+        title: 'Success',
+        description: 'Scheduler paused successfully',
+      });
+    } catch (err) {
+      console.error('Failed to pause scheduler:', err);
+      toast({
+        title: 'Transaction Failed',
+        description: err instanceof Error ? err.message : 'Failed to pause scheduler',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPauseLoading(false);
+    }
+  };
+
+  const resumeScheduler = async () => {
+    if (!walletAddress) {
+      toast({
+        title: 'Wallet Not Connected',
+        description: 'Please connect your wallet first',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsPauseLoading(true);
+
+      // Switch to Reactive Network
+      await switchToReactiveNetwork();
+
+      // Get signer
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      // Create contract instance
+      const schedulerContract = new ethers.Contract(SCHEDULER_RSC, SCHEDULER_ABI, signer);
+
+      // Send resume transaction
+      toast({
+        title: 'Transaction Pending',
+        description: 'Resuming scheduler...',
+      });
+
+      const tx = await schedulerContract.resume();
+      await tx.wait();
+
+      setIsPaused(false);
+
+      toast({
+        title: 'Success',
+        description: 'Scheduler resumed successfully',
+      });
+    } catch (err) {
+      console.error('Failed to resume scheduler:', err);
+      toast({
+        title: 'Transaction Failed',
+        description: err instanceof Error ? err.message : 'Failed to resume scheduler',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPauseLoading(false);
+    }
+  };
+
+  const handlePauseToggle = () => {
+    if (isPaused) {
+      resumeScheduler();
+    } else {
+      pauseScheduler();
+    }
+  };
+
   // Calculate profit delta
   const profitDelta = contractData.bestRate > contractData.currentRate
     ? Number(contractData.bestRate - contractData.currentRate) / 1e25
@@ -235,9 +478,27 @@ export default function Dashboard() {
                 <div className="w-2 h-2 bg-[#0aff00] rounded-full animate-pulse" />
                 <span className="text-xs text-[#0aff00] font-mono font-bold">SEPOLIA TESTNET</span>
               </div>
-              <Button className="bg-gradient-to-r from-[#00f3ff] to-[#0aff00] text-black font-bold hover:shadow-[0_0_30px_rgba(0,243,255,0.6)] transition-all">
-                <Wallet className="w-4 h-4 mr-2" />
-                Connect Wallet
+              <Button
+                className="bg-gradient-to-r from-[#00f3ff] to-[#0aff00] text-black font-bold hover:shadow-[0_0_30px_rgba(0,243,255,0.6)] transition-all"
+                onClick={connectWallet}
+                disabled={isConnecting || !!walletAddress}
+              >
+                {isConnecting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Connecting...
+                  </>
+                ) : walletAddress ? (
+                  <>
+                    <Wallet className="w-4 h-4 mr-2" />
+                    {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+                  </>
+                ) : (
+                  <>
+                    <Wallet className="w-4 h-4 mr-2" />
+                    Connect Wallet
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -289,19 +550,26 @@ export default function Dashboard() {
                 {/* Active Pool */}
                 <div className="border-t border-gray-800 pt-4">
                   <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Active Pool</p>
-                  <div 
+                  <div
                     className="bg-gradient-to-br from-black/60 to-black/40 rounded-xl p-4 border-2 transition-all"
                     style={{ borderColor: activePoolConfig.color }}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 mb-2">
                       <span className="text-4xl">{activePoolConfig.logo}</span>
                       <div>
                         <p className="font-bold text-lg" style={{ color: activePoolConfig.color }}>
                           {activePoolConfig.name}
                         </p>
-                        <p className="text-xs text-gray-500 font-mono">{contractData.activePool.slice(0, 10)}...</p>
                       </div>
                     </div>
+                    <a
+                      href={getExplorerUrl(contractData.activePool)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-gray-400 hover:text-[#00f3ff] font-mono underline decoration-dotted transition-colors break-all"
+                    >
+                      {contractData.activePool}
+                    </a>
                   </div>
                 </div>
 
@@ -350,26 +618,33 @@ export default function Dashboard() {
                           : 'border-gray-700'
                       }`}
                     >
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                          <span className="text-3xl">{config.logo}</span>
-                          <div>
+                      <div className="mb-3">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-3xl">{config.logo}</span>
                             <p className="font-bold text-white">{config.name}</p>
-                            <p className="text-xs text-gray-500 font-mono">{pool.address.slice(0, 10)}...</p>
+                          </div>
+                          <div className="flex gap-1 flex-shrink-0">
+                            {isActive && (
+                              <Badge className="bg-[#627eea]/20 text-[#627eea] border-[#627eea]/50 text-xs">
+                                ACTIVE
+                              </Badge>
+                            )}
+                            {isBest && contractData.shouldRebalance && (
+                              <Badge className="bg-[#0aff00]/20 text-[#0aff00] border-[#0aff00]/50 text-xs animate-pulse">
+                                TARGET
+                              </Badge>
+                            )}
                           </div>
                         </div>
-                        <div className="flex flex-col items-end gap-1">
-                          {isActive && (
-                            <Badge className="bg-[#627eea]/20 text-[#627eea] border-[#627eea]/50 text-xs">
-                              ACTIVE
-                            </Badge>
-                          )}
-                          {isBest && contractData.shouldRebalance && (
-                            <Badge className="bg-[#0aff00]/20 text-[#0aff00] border-[#0aff00]/50 text-xs animate-pulse">
-                              TARGET
-                            </Badge>
-                          )}
-                        </div>
+                        <a
+                          href={getExplorerUrl(pool.address)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-gray-500 hover:text-[#00f3ff] font-mono underline decoration-dotted transition-colors break-all block pl-11"
+                        >
+                          {pool.address}
+                        </a>
                       </div>
 
                       <div className="flex items-baseline gap-2">
@@ -396,10 +671,10 @@ export default function Dashboard() {
           </Card>
 
           {/* ========== COLUMN 3: REACTIVE SCHEDULER ========== */}
-          <Card className="bg-black/40 border-[#00f3ff]/30 backdrop-blur-xl p-6">
+          <Card className={`bg-black/40 backdrop-blur-xl p-6 ${isPaused ? 'border-gray-500/30' : 'border-[#00f3ff]/30'}`}>
             <div className="flex items-center gap-2 mb-6">
-              <Activity className="w-5 h-5 text-[#00f3ff]" />
-              <h2 className="text-xl font-bold text-[#00f3ff]">REACTIVE SCHEDULER</h2>
+              <Activity className={`w-5 h-5 ${isPaused ? 'text-gray-500' : 'text-[#00f3ff]'}`} />
+              <h2 className={`text-xl font-bold ${isPaused ? 'text-gray-500' : 'text-[#00f3ff]'}`}>REACTIVE SCHEDULER</h2>
             </div>
 
             <div className="space-y-6">
@@ -407,36 +682,50 @@ export default function Dashboard() {
               <div>
                 <p className="text-xs text-gray-500 uppercase tracking-wider mb-4 text-center">Next Cron Check</p>
                 <div className="flex flex-col items-center">
-                  <div className="relative w-32 h-32">
-                    <svg className="w-full h-full transform -rotate-90">
-                      <circle
-                        cx="64"
-                        cy="64"
-                        r="56"
-                        stroke="#1a1a1a"
-                        strokeWidth="8"
-                        fill="none"
-                      />
-                      <circle
-                        cx="64"
-                        cy="64"
-                        r="56"
-                        stroke="#00f3ff"
-                        strokeWidth="8"
-                        fill="none"
-                        strokeDasharray={`${2 * Math.PI * 56}`}
-                        strokeDashoffset={`${2 * Math.PI * 56 * (1 - blocksUntilCron / 50)}`}
-                        className="transition-all duration-1000"
-                        style={{ filter: 'drop-shadow(0 0 10px #00f3ff)' }}
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="text-center">
-                        <p className="text-4xl font-bold font-mono text-[#00f3ff]">{blocksUntilCron}</p>
-                        <p className="text-xs text-gray-500">blocks</p>
-                      </div>
-                    </div>
-                  </div>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="relative w-32 h-32 cursor-pointer">
+                          <svg className="w-full h-full transform -rotate-90">
+                            <circle
+                              cx="64"
+                              cy="64"
+                              r="56"
+                              stroke="#1a1a1a"
+                              strokeWidth="8"
+                              fill="none"
+                            />
+                            <circle
+                              cx="64"
+                              cy="64"
+                              r="56"
+                              stroke={isPaused ? "#6b7280" : "#00f3ff"}
+                              strokeWidth="8"
+                              fill="none"
+                              strokeDasharray={`${2 * Math.PI * 56}`}
+                              strokeDashoffset={`${2 * Math.PI * 56 * (1 - blocksUntilCron / 50)}`}
+                              className="transition-all duration-1000"
+                              style={{ filter: isPaused ? 'none' : 'drop-shadow(0 0 10px #00f3ff)' }}
+                            />
+                          </svg>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="text-center">
+                              <p className={`text-4xl font-bold font-mono ${isPaused ? 'text-gray-500' : 'text-[#00f3ff]'}`}>
+                                {blocksUntilCron}
+                              </p>
+                              <p className="text-xs text-gray-500">blocks</p>
+                            </div>
+                          </div>
+                        </div>
+                      </TooltipTrigger>
+                      {isPaused && (
+                        <TooltipContent>
+                          <p className="text-sm font-semibold">Scheduler Paused</p>
+                          <p className="text-xs text-gray-400">Automation is currently disabled</p>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               </div>
 
@@ -510,11 +799,17 @@ export default function Dashboard() {
               <div className="border-t border-gray-800 pt-4">
                 <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Scheduler Controls</p>
                 <div className="space-y-2">
-                  <Button 
-                    className="w-full bg-black/60 border-2 border-yellow-500 text-yellow-500 font-bold hover:bg-yellow-500/10"
-                    onClick={() => setIsPaused(!isPaused)}
+                  <Button
+                    className="w-full bg-black/60 border-2 border-yellow-500 text-yellow-500 font-bold hover:bg-yellow-500/10 disabled:opacity-50"
+                    onClick={handlePauseToggle}
+                    disabled={isPauseLoading}
                   >
-                    {isPaused ? (
+                    {isPauseLoading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : isPaused ? (
                       <>
                         <Play className="w-4 h-4 mr-2" />
                         Resume Automation
@@ -528,7 +823,14 @@ export default function Dashboard() {
                   </Button>
                   <div className="bg-black/60 rounded-lg p-3 border border-gray-700">
                     <p className="text-xs text-gray-500 mb-1">Scheduler RSC</p>
-                    <p className="text-xs font-mono text-gray-400 break-all">{SCHEDULER_RSC}</p>
+                    <a
+                      href={getExplorerUrl(SCHEDULER_RSC, true)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-mono text-gray-400 hover:text-[#00f3ff] underline decoration-dotted transition-colors break-all block"
+                    >
+                      {SCHEDULER_RSC}
+                    </a>
                   </div>
                 </div>
               </div>
