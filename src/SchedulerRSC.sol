@@ -225,6 +225,14 @@ contract SchedulerRSC is AbstractPausableReactive {
     }
 
     /**
+     * @notice Public getter to check if scheduler is paused
+     * @return True if the scheduler is currently paused
+     */
+    function isPaused() external view returns (bool) {
+        return paused;
+    }
+
+    /**
      * @notice View function to check if contract is in weekly mode
      * @return True if interval is 60000 (weekly mode)
      */
