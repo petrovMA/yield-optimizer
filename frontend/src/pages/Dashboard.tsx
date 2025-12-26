@@ -132,6 +132,7 @@ const SCHEDULER_ABI = [
     'function resume() external',
     'function isPaused() external view returns (bool)',
     'function owner() external view returns (address)',
+    'function interval() external view returns (uint256)',
 ];
 
 // ========== UTILITY FUNCTIONS ==========
@@ -190,8 +191,14 @@ export default function Dashboard() {
     const [isPaused, setIsPaused] = useState(false);
     const [isPauseLoading, setIsPauseLoading] = useState(false);
     const [schedulerOwner, setSchedulerOwner] = useState<string>('');
-    const [blocksUntilCron, setBlocksUntilCron] = useState(45);
+    const [blocksUntilCron, setBlocksUntilCron] = useState(0);
+    const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState(0); // seconds
     const [isRebalancing, setIsRebalancing] = useState(false);
+
+    // Block sync state
+    const [cronInterval, setCronInterval] = useState(100); // Default to 100
+    const [lastRealBlockNumber, setLastRealBlockNumber] = useState(0);
+    const [lastBlockTimestamp, setLastBlockTimestamp] = useState(Date.now());
 
     // Fetch contract data
     useEffect(() => {
@@ -267,13 +274,90 @@ export default function Dashboard() {
         return () => clearInterval(interval);
     }, []);
 
-    // Block countdown simulation
+    // ========== BLOCK SYNC LOGIC ==========
+
+    // Initial fetch: Get interval from contract and sync with blockchain
     useEffect(() => {
-        const interval = setInterval(() => {
-            setBlocksUntilCron(prev => (prev <= 1 ? 50 : prev - 1));
-        }, 1000);
-        return () => clearInterval(interval);
+        const initialize = async () => {
+            try {
+                const provider = new ethers.JsonRpcProvider(REACTIVE_NETWORK.rpcUrls[0]);
+                const schedulerContract = new ethers.Contract(SCHEDULER_RSC, SCHEDULER_ABI, provider);
+
+                // Get interval from contract
+                const intervalBigInt = await schedulerContract.interval();
+                const intervalNum = Number(intervalBigInt);
+                setCronInterval(intervalNum);
+
+                // Initial blockchain sync
+                await syncWithBlockchain(provider, intervalNum);
+            } catch (err) {
+                console.error('Failed to initialize block sync:', err);
+            }
+        };
+
+        initialize();
     }, []);
+
+    // Helper function to sync with blockchain
+    const syncWithBlockchain = async (provider: ethers.JsonRpcProvider, interval: number) => {
+        try {
+            // Get latest block
+            const block = await provider.getBlock('latest');
+            if (!block) return;
+
+            const blockNumber = block.number;
+            const blockTimestampMs = block.timestamp * 1000; // Convert to ms
+
+            // Calculate blocks until next cron
+            const blocksRemaining = interval - (blockNumber % interval);
+
+            setLastRealBlockNumber(blockNumber);
+            setLastBlockTimestamp(blockTimestampMs);
+            setBlocksUntilCron(blocksRemaining);
+            setEstimatedTimeRemaining(blocksRemaining * 7); // ~7 sec per block
+        } catch (err) {
+            console.error('Blockchain sync failed:', err);
+        }
+    };
+
+    // Sync every 30 seconds (calculated from lastBlockTimestamp)
+    useEffect(() => {
+        const syncInterval = setInterval(async () => {
+            try {
+                const provider = new ethers.JsonRpcProvider(REACTIVE_NETWORK.rpcUrls[0]);
+                await syncWithBlockchain(provider, cronInterval);
+            } catch (err) {
+                console.error('Periodic sync failed:', err);
+                // Continue with local counting on error
+            }
+        }, 30000); // 30 seconds
+
+        return () => clearInterval(syncInterval);
+    }, [cronInterval]);
+
+    // Local block countdown (every second)
+    useEffect(() => {
+        const tickInterval = setInterval(() => {
+            // Calculate seconds since last real block
+            const now = Date.now();
+            const secondsSinceLastBlock = Math.floor((now - lastBlockTimestamp) / 1000);
+
+            // Estimate blocks passed (~7 sec per block)
+            const estimatedBlocksPassed = Math.floor(secondsSinceLastBlock / 7);
+            const currentEstimatedBlock = lastRealBlockNumber + estimatedBlocksPassed;
+
+            // Calculate blocks until next cron
+            const blocksRemaining = cronInterval - (currentEstimatedBlock % cronInterval);
+
+            // Calculate estimated time remaining
+            const timeRemainingSeconds = blocksRemaining * 7 - (secondsSinceLastBlock % 7);
+
+            setBlocksUntilCron(blocksRemaining);
+            setEstimatedTimeRemaining(Math.max(0, timeRemainingSeconds));
+        }, 1000); // Update every second
+
+        return () => clearInterval(tickInterval);
+    }, [lastRealBlockNumber, lastBlockTimestamp, cronInterval]);
 
     // Fetch scheduler paused status
     // Note: Current contract doesn't have public paused() getter - needs redeploy with isPaused()
@@ -764,7 +848,7 @@ export default function Dashboard() {
                                                                 strokeWidth="8"
                                                                 fill="none"
                                                                 strokeDasharray={`${2 * Math.PI * 56}`}
-                                                                strokeDashoffset={`${2 * Math.PI * 56 * (1 - blocksUntilCron / 50)}`}
+                                                                strokeDashoffset={`${2 * Math.PI * 56 * (1 - blocksUntilCron / cronInterval)}`}
                                                                 className="transition-all duration-1000"
                                                                 style={{filter: isPaused ? 'none' : 'drop-shadow(0 0 10px #00f3ff)'}}
                                                             />
@@ -778,6 +862,57 @@ export default function Dashboard() {
                                                                 <p className="text-xs text-gray-500">blocks</p>
                                                             </div>
                                                         </div>
+                                                    </div>
+                                                    {/* Estimated Time Remaining */}
+                                                    <div className="mt-3 text-center">
+                                                        <p className={`text-sm font-mono ${isPaused ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                            ~{Math.floor(estimatedTimeRemaining / 60)}m {estimatedTimeRemaining % 60}s
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Scheduler Controls */}
+                                            <div className="border-t border-gray-800 pt-4">
+                                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Scheduler
+                                                    Controls</p>
+                                                <div className="space-y-2">
+                                                    <Button
+                                                        className={`w-full bg-black/60 border-2 font-bold disabled:opacity-50 ${
+                                                            isPaused
+                                                                ? 'border-[#00f3ff] text-[#00f3ff] hover:bg-[#00f3ff]/10'
+                                                                : 'border-yellow-500 text-yellow-500 hover:bg-yellow-500/10'
+                                                        }`}
+                                                        onClick={handlePauseToggle}
+                                                        disabled={isPauseLoading}
+                                                    >
+                                                        {isPauseLoading ? (
+                                                            <>
+                                                                <RefreshCw className="w-4 h-4 mr-2 animate-spin"/>
+                                                                Processing...
+                                                            </>
+                                                        ) : isPaused ? (
+                                                            <>
+                                                                <Play className="w-4 h-4 mr-2"/>
+                                                                Resume Automation
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Pause className="w-4 h-4 mr-2"/>
+                                                                Pause Automation
+                                                            </>
+                                                        )}
+                                                    </Button>
+                                                    <div className="bg-black/60 rounded-lg p-3 border border-gray-700">
+                                                        <p className="text-xs text-gray-500 mb-1">Scheduler RSC</p>
+                                                        <a
+                                                            href={getExplorerUrl(SCHEDULER_RSC, true)}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-xs font-mono text-gray-400 hover:text-[#00f3ff] underline decoration-dotted transition-colors break-all block"
+                                                        >
+                                                            {SCHEDULER_RSC}
+                                                        </a>
                                                     </div>
                                                 </div>
                                             </div>
@@ -854,47 +989,6 @@ export default function Dashboard() {
                                                         </p>
                                                     </div>
                                                 )}
-                                            </div>
-
-                                            {/* Scheduler Controls */}
-                                            <div className="border-t border-gray-800 pt-4">
-                                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Scheduler
-                                                    Controls</p>
-                                                <div className="space-y-2">
-                                                    <Button
-                                                        className="w-full bg-black/60 border-2 border-yellow-500 text-yellow-500 font-bold hover:bg-yellow-500/10 disabled:opacity-50"
-                                                        onClick={handlePauseToggle}
-                                                        disabled={isPauseLoading}
-                                                    >
-                                                        {isPauseLoading ? (
-                                                            <>
-                                                                <RefreshCw className="w-4 h-4 mr-2 animate-spin"/>
-                                                                Processing...
-                                                            </>
-                                                        ) : isPaused ? (
-                                                            <>
-                                                                <Play className="w-4 h-4 mr-2"/>
-                                                                Resume Automation
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <Pause className="w-4 h-4 mr-2"/>
-                                                                Pause Automation
-                                                            </>
-                                                        )}
-                                                    </Button>
-                                                    <div className="bg-black/60 rounded-lg p-3 border border-gray-700">
-                                                        <p className="text-xs text-gray-500 mb-1">Scheduler RSC</p>
-                                                        <a
-                                                            href={getExplorerUrl(SCHEDULER_RSC, true)}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-xs font-mono text-gray-400 hover:text-[#00f3ff] underline decoration-dotted transition-colors break-all block"
-                                                        >
-                                                            {SCHEDULER_RSC}
-                                                        </a>
-                                                    </div>
-                                                </div>
                                             </div>
                                         </div>
                                     </div>
