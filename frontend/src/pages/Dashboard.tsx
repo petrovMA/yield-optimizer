@@ -25,6 +25,7 @@ import {
     Pause,
     Play
 } from 'lucide-react';
+import TransactionHistory from '@/components/TransactionHistory';
 
 // ========== TYPES ==========
 
@@ -1002,6 +1003,11 @@ export default function Dashboard() {
                             </Tooltip>
                         </TooltipProvider>
                     </Card>
+                </div>
+
+                {/* Transaction History Section */}
+                <div className="mt-8">
+                    <TransactionHistory />
                 </div>
             </main>
         </div>
