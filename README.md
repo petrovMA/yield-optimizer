@@ -10,9 +10,10 @@ Automated DeFi Vault that maximizes yield by automatically rebalancing funds bet
 - [How It Works](#how-it-works)
 - [Setup & Installation](#setup--installation)
 - [Usage](#usage)
-- [Testing](#testing)
-- [Deployment](#deployment)
+- [Testing](TESTING_GUIDE.md)
+- [Deployment](DEPLOYMENT.md)
 - [Future Improvements](#future-improvements)
+- [License](#license)
 
 ## 🎯 Overview
 
@@ -540,7 +541,23 @@ Contributions are welcome! Please follow these steps:
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+**MIT License Summary:**
+- ✅ **Commercial use** - Use this software for commercial purposes
+- ✅ **Modification** - Modify the source code
+- ✅ **Distribution** - Distribute the software
+- ✅ **Private use** - Use the software privately
+- ⚠️ **Liability** - Software is provided "as is" without warranty
+- ⚠️ **No warranty** - No warranty of any kind is provided
+
+Copyright (c) 2025 Cross-Chain Yield Optimizer Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## 🏆 Built With
 
